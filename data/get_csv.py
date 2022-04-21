@@ -10,42 +10,24 @@ from tqdm import tqdm
 
 data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 'Data')
 DIR = {'SI2017': os.path.join(data_dir, 'SwissImage/2017_25cm'),
-    'TLM2c': os.path.join(data_dir, 'TLMRaster/F'),
-    'TLM3c': os.path.join(data_dir, 'TLMRaster/OF_F'),
-    'TLM4c': os.path.join(data_dir, 'TLMRaster/OF_F_SF'),
     'TLM5c': os.path.join(data_dir, 'TLMRaster/5c'),
     'ALTI': os.path.join(data_dir, 'SwissALTI3D'),
     'VHM': os.path.join(data_dir, 'VHM_NFI'),
     'TH': os.path.join(data_dir, 'TH_NFI'),
-    'VHM2': os.path.join(data_dir, 'VHM_NFI_bin_2m'),
-    'TCD': os.path.join(data_dir, 'Copernicus_HRL/TCD_2018_010m_ch_03035_v020/DATA_edited/1m_nn'),
-    'TCD2': os.path.join(data_dir, 'TCD_NFI_2m'),
     'TCD1': os.path.join(data_dir, 'TCD_NFI_1m')}
 
 PREFIX = {'SI2017': 'DOP25_LV95', 
-    'TLM2c': 'TLM_F',
-    'TLM3c': 'TLM_OF_F',
-    'TLM4c': 'TLM_OF_F_SF',
     'TLM5c': 'TLM5c',
     'ALTI' : 'SWISSALTI3D_0.5_TIFF_CHLV95_LN02',
     'VHM' : 'VHM_NFI',
     'TH' : 'TH_NFI',
-    'VHM2' : 'VHM_NFI_bin_2m',
-    'TCD' : 'Cop_HRL_TCD_nn',
-    'TCD2' : 'TCD_NFI_2m',
     'TCD1' : 'TCD_NFI_1m'}
 
 SUFFIX = {'SI2017': '_2017_1.tif', 
-    'TLM2c': '.tif',
-    'TLM3c': '.tif',
-    'TLM4c': '.tif',
     'TLM5c': '.tif',
     'ALTI' : '.tif',
     'VHM' : '.tif',
     'TH' : '.tif',
-    'VHM2' : '.tif',
-    'TCD' : '.tif',
-    'TCD2' : '.tif',
     'TCD1' : '.tif'}
 
 VAL_VIZ_ZONE = [ [(2568, 2572), (1095, 1101)],
@@ -56,14 +38,10 @@ VAL_VIZ_ZONE = [ [(2568, 2572), (1095, 1101)],
 default_tilenum_extractor = lambda x: os.path.splitext('_'.join(os.path.basename(x).split('_')[-2:]))[0]
 TILENUM_EXTRACTOR = {'SI2017': lambda x: '_'.join(os.path.basename(x).split('_')[2:4]),
                     'ALTI': default_tilenum_extractor,
-                    'TLM3c': default_tilenum_extractor,
-                    'TLM4c': default_tilenum_extractor,
                     'TLM5c': default_tilenum_extractor,
                     'VHM': default_tilenum_extractor,
                     'TH': default_tilenum_extractor,
-                    'TCDCopHRL': default_tilenum_extractor,
-                    'TCD1': default_tilenum_extractor,
-                    'TCD2': default_tilenum_extractor}
+                    'TCD1': default_tilenum_extractor}
 
 def get_fn(dir, tk, tilenum_extractor):
     """

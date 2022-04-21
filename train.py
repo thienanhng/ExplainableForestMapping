@@ -17,18 +17,16 @@ from copy import deepcopy
 
 def get_parser():
     parser = argparse.ArgumentParser(description='Launch model training')
-    parser.add_argument('--input_sources', type=str, nargs='*', default=['SI2017', 'ALTI'],
-            choices = ['SI2017', 'ALTI'], \
-            help='Source of inputs. Order matters.'\
-                'Example: --input_sources SI2017 ALTI')
+    parser.add_argument('--input_sources', type=str, nargs='+', default=['SI2017', 'ALTI'],
+            choices = ['SI2017', 'ALTI'], help='Source of inputs. Order matters. Example: --input_sources SI2017 ALTI')
     parser.add_argument('--target_source', type=str, default='TLM5c',
-            choices = ['TLM3c','TLM4c', 'TLM5c'], \
-            help='Source of targets. TLMxc: SwissTLM3D forest targets with x classes')
+            choices = ['TLM5c'], help='Source of targets. TLM5c: Rasterized SwissTLM3D forest targets with Open Forest, '
+            'Closed Forest, Shrub forest and Woodland annotations (5 classes including Non-Forest)')
     parser.add_argument('--interm_target_sources', type=str, nargs='*', default=[],
-            choices = ['VHM', 'TH', 'TCDCopHRL', 'TCD1', 'TCD2'], \
-            help='Sources of supervision for the two intermediate regression tasks. TCDCopHRL: Copernicus HRL Tree Canopy Density. '
-                'VHM: Vegetation Height Model (National Forest Inventory). Should be either an empty list or a length-2 '
-                'list')
+            choices = ['TH', 'TCD1'], \
+            help='Sources of supervision for the two intermediate regression tasks. TH: Tree Height. TCD1: Tree Canopy '
+            'Density obtained by averaging a Vegetation Height Model (National Forest Inventory) thresholded at 1m . '
+            'Should be either empty or a length-2 list')
     parser.add_argument('--train_csv_fn', type=str, help='Csv file listing the input and target files to use for training')
     parser.add_argument('--val_csv_fn', type=str, help='Csv file listing the input and target files to use for validation')
     parser.add_argument('--output_dir', type = str, help='Directory where to store models and metrics. '
@@ -67,7 +65,7 @@ def get_parser():
                         'to accelerate debugging')
     parser.add_argument('--adapt_loss_weights', action='store_true', help='Flag to indicate whether to adapt loss '
                         'weights of the non-binary tasks before each epoch to the ratio of tiles with and without forest')
-    parser.add_argument('--regression_loss', type=str, nargs=2, default=['MSElog', 'MSE'], 
+    parser.add_argument('--regression_loss', type=str, nargs='*', default=['MSElog', 'MSE'], 
                         choices=['MSE', 'MAE', 'MSElog', 'RMSE', 'RMSElog'], help='type of regression loss for each '
                         'intermediate concept')
     parser.add_argument('--penalize_correction', action='store_true', help='Flag to use a L-1 sparsity penalty on the '
@@ -82,7 +80,7 @@ def get_parser():
                         'penalty')
     parser.add_argument('--weight_regression', action='store_true', help='Whether to weight the regression loss with'
                         'weights proportional to the target value')
-    parser.add_argument('--regression_weight_slope', type=float, nargs=2, default=[1.0, 1.0], help='slope coefficient '
+    parser.add_argument('--regression_weight_slope', type=float, nargs='*', default=[1.0, 1.0], help='slope coefficient '
                         'of the target-value-dependent regression weights, for each of the intermediate concept')
     
     return parser
@@ -91,10 +89,10 @@ def get_parser():
 class DebugArgs():
     """Class for setting arguments directly in this python script instead of through a command line"""
     def __init__(self):
-        self.debug = False
+        self.debug = True
         self.input_sources = ['SI2017', 'ALTI']
         self.target_source = 'TLM5c'
-        self.interm_target_sources = ['TH', 'TCD1']
+        self.interm_target_sources = ['TH', 'TCD1'] # [] for black-box model, ['TH', 'TCD1'] for semantic bottleneck model
         self.train_csv_fn = 'data/csv/SI2017_ALTI_TH_TCD1_TLM5c_train_with_counts.csv'
         self.val_csv_fn = 'data/csv/SI2017_ALTI_TH_TCD1_TLM5c_val.csv'
         self.batch_size = 16
@@ -103,11 +101,10 @@ class DebugArgs():
         self.learning_schedule = [5, 5, 5, 5] 
         self.n_negative_samples = [0, 5, 10, 20, 40, 80, 160, 320, 320, 320]  
         self.negative_sampling_schedule = [2, 2, 2, 2, 2, 2, 2, 2, 2, 2] 
-        # supervision parameters
         self.adapt_loss_weights = False
         self.weight_regression = False 
         self.regression_loss = ['MSElog', 'MSE']
-        self.regression_weight_slope = [0.0, 1.0]
+        self.regression_weight_slope = [0.0, 0.0]
         self.penalize_correction = True 
         self.decision = 'h' 
         self.lambda_bin = 1.0 
@@ -117,8 +114,7 @@ class DebugArgs():
         self.skip_validation = False
         self.undersample_validation = 1
         self.resume_training = False
-        self.output_dir = 'output/my_sb'
-        #self.output_dir = 'output/debug'
+        self.output_dir = 'output/my_new_model'
         self.no_user_input = True
 
 
@@ -565,7 +561,9 @@ def train(args):
                                         regr_criteria= val_regr_criteria, 
                                         correction_penalizer=None if regr_only else correction_penalizer)
             if use_sb:
-                cm, report, val_losses, (val_regr_error, val_pos_regr_error, val_neg_regr_error), (regr_pred_pts, regr_target_pts) = results
+                cm, report, val_losses, \
+                    (val_regr_error, val_pos_regr_error, val_neg_regr_error), \
+                        (regr_pred_pts, regr_target_pts) = results
             else:
                 cm, report, val_losses = results
             # collect individual validation losses and compute total validation loss

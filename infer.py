@@ -14,34 +14,29 @@ def get_parser():
     parser = argparse.ArgumentParser(description='Launch model inference')
     parser.add_argument('--csv_fn', type=str, help='Path to a CSV file containing at least two columns -- "input" or '
                         '"input_x" (x an integer, for multimodal model), "target", and optionally "interm_target_x", '
-                        'that point to files of the dataset'
-            'imagery and targets and optionally intermediate concept targets')
+                        'that point to files of the dataset imagery and targets and optionally intermediate concept '
+                        'targets')
     parser.add_argument('--input_sources', type=str, nargs='+', default=['SI2017', 'ALTI'],
-            choices = ['SI2017', 'ALTI'],
-            help='Source of inputs. Order matters. Example: --input_sources SI2017 ALTI')
-    parser.add_argument('--target_source', type=str, nargs='?', default=['TLM4c'],
-            choices = ['TLM3c','TLM4c','TLM5c'],
-            help='Source of targets. TLMxc: SwissTLM3D forest targets with x classes')
-    parser.add_argument('--interm_target_sources', type=str, nargs='*', default=[], choices = ['TH','VHM', 'TCD1', 'TCD2', 'TCDCopHRL'],
-            help='Sources of supervision for intermediate regression tasks. TCD: Copernicus HRL Tree Canopy Density. '
-                'VHM: Vegetation Height Model (National Forest Inventory).')
-    parser.add_argument('--model_fn', type=str, required=True,
-        help='Path to the model file.')
-    parser.add_argument('--output_dir', type=str, required = True,
-        help='Directory where the output predictions will be stored.')
-    parser.add_argument('--overwrite', action="store_true",
-        help='Flag for overwriting "output_dir" if that directory already exists.')
-    parser.add_argument('--batch_size', type=int, default=32,
-        help='Batch size to use during inference.')
-    parser.add_argument('--num_workers', type=int, default=0,
-        help='Number of workers to use for data loading.')
-    parser.add_argument('--save_hard', action="store_true",
-        help='Flag that enables saving the "hard" class predictions.')
-    parser.add_argument('--save_soft', action="store_true",
-        help='Flag that enables saving the "soft" class predictions.')
-    parser.add_argument('--save_error_map', action="store_true",
-        help='Flag that enables saving the error maps for intermediate concept regression predictions. Requires'
-            'intermediate targets to be specified in "csv_fn" file')
+            choices = ['SI2017', 'ALTI'], help='Source of inputs. Order matters. Example: --input_sources SI2017 ALTI')
+    parser.add_argument('--target_source', type=str, default='TLM5c', choices = ['TLM5c'], help='Source of targets. '
+                        'TLM5c: Rasterized SwissTLM3D forest targets with Open Forest, Closed Forest, Shrub forest and '
+                        'Woodland annotations (5 classes including Non-Forest)')
+    parser.add_argument('--interm_target_sources', type=str, nargs='*', default=[], choices = ['TH', 'TCD1'],
+            help='Sources of supervision for the two intermediate regression tasks. TH: Tree Height. TCD1: Tree Canopy '
+            'Density obtained by averaging a Vegetation Height Model (National Forest Inventory) thresholded at 1m . '
+            'Should be either empty or a length-2 list')
+    parser.add_argument('--model_fn', type=str, required=True, help='Path to the model file.')
+    parser.add_argument('--output_dir', type=str, required = True, help='Directory where the output predictions will be '
+                        'stored.')
+    parser.add_argument('--overwrite', action="store_true", help='Flag for overwriting "output_dir" if that directory '
+                        'already exists.')
+    parser.add_argument('--batch_size', type=int, default=32, help='Batch size to use during inference.')
+    parser.add_argument('--num_workers', type=int, default=0, help='Number of workers to use for data loading.')
+    parser.add_argument('--save_hard', action="store_true", help='Flag that enables saving the "hard" class predictions.')
+    parser.add_argument('--save_soft', action="store_true", help='Flag that enables saving the "soft" class predictions.')
+    parser.add_argument('--save_error_map', action="store_true", help='Flag that enables saving the error maps for '
+                        'intermediate concept regression predictions. Requires intermediate targets to be specified in '
+                        '"csv_fn" file')
     parser.add_argument('--evaluate', action='store_true', help='whether to compute metrics on the obtained predictions'
                         '(target must be specified in "csv_fn".')
     return parser
