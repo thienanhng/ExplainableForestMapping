@@ -8,7 +8,8 @@ import torch
 threshold_height = 1
 prefix = "VHM_NFI"
 prefix_out = "TH_NFI"
-data_dir = "/home/tanguyen/Documents/Projects/2020/ForestMapping/Data"
+project_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+data_dir = os.path.join(os.path.dirname(os.path.dirname(project_dir)), 'Data')
 img_dir = os.path.join(data_dir, "VHM_NFI")
 img_out_dir = os.path.join(data_dir, "TH_NFI")
 mosaic_fn = os.path.join(data_dir, "VHM_NFI/mosaic.vrt")
@@ -22,9 +23,7 @@ mp = torch.nn.MaxPool2d(kernel_size=kernel_size, stride=1, padding=0)
 with rasterio.open(mosaic_fn, 'r') as f_mosaic:
     for fn in tqdm(f_mosaic.files):
         if os.path.splitext(fn)[-1] == '.tif':
-            #fn = os.path.join(img_dir,"{}_{}.tif".format(prefix, tilenum))
             with rasterio.open(fn, 'r') as f_bin:
-                # im_in = torch.from_numpy(f_bin.read(1)).float()
                 bb = f_bin.bounds
                 profile = f_bin.profile
                 nodata_mosaic = profile['nodata']
@@ -77,19 +76,21 @@ with rasterio.open(mosaic_fn, 'r') as f_mosaic:
             height, width = im_in.shape[0], im_in.shape[1]
             assert height >= profile['height'] and height <= profile['height'] + 2*margin
             assert width >= profile['width'] and width <= profile['width'] + 2*margin
-            #nodata_mask = torch.from_numpy(im_in[top_margin:height-bottom_margin, left_margin:width-right_margin] == nodata_mosaic)
             
             im_in = torch.from_numpy(im_in).float()
             im_in[im_in == float(nodata_mosaic)] = float('nan')
             
             # pad the images if the available margin is too small
-            # im_in = torch.nn.functional.pad(im_in, (radius-left_margin, radius-right_margin, radius-top_margin, radius-bottom_margin))
             profile['dtype'] = 'float32'
             profile['nodata'] = nodata
             im_out = mp(im_in.unsqueeze(0).unsqueeze(0))
             im_out = im_out.squeeze(0).squeeze(0)
             # pad with nodata where the margin was too small
-            im_out = torch.nn.functional.pad(im_out, (margin-left_margin, margin-right_margin, margin-top_margin, margin-bottom_margin), mode = 'constant', value = nodata)
+            im_out = torch.nn.functional.pad(
+                        im_out, 
+                        (margin-left_margin, margin-right_margin, margin-top_margin, margin-bottom_margin), 
+                        mode = 'constant', 
+                        value = nodata)
             # replace all values polluted by nans by nodata value
             im_out[torch.isnan(im_out)] = nodata
             fn_out = fn.replace(prefix, prefix_out)

@@ -47,14 +47,14 @@ class DebugArgs():
     def __init__(self):
         self.input_sources = ['SI2017', 'ALTI']
         self.target_source = 'TLM5c' 
-        self.interm_target_sources = ['TH', 'TCD1'] 
+        self.interm_target_sources = ['TH', 'TCD1'] # [] for black-box model, ['TH', 'TCD1'] for semantic bottleneck model
         self.batch_size = 16
-        self.num_workers = 2 #0
+        self.num_workers = 2 
         self.save_hard = True
-        self.save_soft = True
+        self.save_soft = False
         self.save_error_map = False
-        self.overwrite = True
-        set = 'test_viz'
+        self.overwrite = False
+        set = 'test'
         self.csv_fn = 'data/csv/SI2017_ALTI_TH_TCD1_TLM5c_{}.csv'.format(set) 
         exp_name = 'sb_hierarchical_MSElog1em1_MSE_doubling_negatives' # 'bb_hierarchical' #
         self.model_fn = 'output/{}/training/{}_model.pt'.format(exp_name, exp_name)
