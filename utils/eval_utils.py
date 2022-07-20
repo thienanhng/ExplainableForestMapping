@@ -3,6 +3,7 @@
 import numpy as np
 import torch
 from collections import OrderedDict as Dict
+from math import sqrt
 
 
 def my_confusion_matrix(y_true, y_pred, n_targets):
@@ -107,13 +108,17 @@ def get_seg_error_map(pred, target, valid_mask, n_classes):
 
 def get_regr_error_map(pred, target, valid_mask):
     error_map = np.zeros_like(target)
+    # print(psutil.virtual_memory()[2])
     error_map[valid_mask] = pred[valid_mask] - target[valid_mask]
     return error_map
 
-def get_regr_error(error_map, main_target, interm_target, nodata_val):
-    valid_mask = interm_target != nodata_val
-    pos_mask = (main_target > 0) * valid_mask
-    neg_mask = (main_target == 0) * valid_mask
-    pos_error, neg_error = np.sum(np.abs(error_map[pos_mask])), np.sum(np.abs(error_map[neg_mask]))
+def get_mae(error_map, target, valid_mask):
+    """Compute the MAE of regression predictions."""
+    pos_mask = (target > 0) * valid_mask
+    neg_mask = (target == 0) * valid_mask
+    pos_mae, neg_mae = np.sum(np.abs(error_map[pos_mask])), np.sum(np.abs(error_map[neg_mask]))
     n_pos, n_neg = np.sum(pos_mask), np.sum(neg_mask)
-    return pos_error, neg_error, n_pos, n_neg
+    return pos_mae, neg_mae, n_pos, n_neg
+        
+  
+    

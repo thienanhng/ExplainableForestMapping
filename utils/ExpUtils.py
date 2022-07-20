@@ -8,37 +8,43 @@ from copy import copy
 # means and standard deviations
 MEANS = {'SI2017': [ 98.01336916, 106.46617234, 93.43728537], 
         'ALTI' : 1878.01851825,
+        'VHM': 3.90032556,
         'TH': 4.95295663,
-        'TCD1': 29.91515737}
+        'TCDCopHRL': 21.18478328,
+        'TCD1': 29.91515737,
+        'TCD2': 26.84415381}
+MEANS['TCD'] =  MEANS['TCDCopHRL'] # for backward compatibility
 
 STDS = {'SI2017': [54.22041366, 52.69225063, 46.55903685], 
         'ALTI' : 1434.79671951,
+        'VHM': 7.52012624,
         'TH': 8.5075463,
-        'TCD1': 37.9657575}
+        'TCDCopHRL': 33.00766675,
+        'TCD1': 37.9657575,
+        'TCD2': 37.10486429}
+STDS['TCD'] =  STDS['TCDCopHRL'] # for backward compatibility
 
 # nodata values
 I_NODATA_VAL = 255 # nodata value for integer arrays/rasters
 F_NODATA_VAL = -1 # nodata value for float arrays/rasters
 
-NODATA_VAL = {'SI2017': None,
+NODATA_VAL = {'SI2017': 0,
+                'TLM3c' : None,
                 'TLM4c' : None,
                 'TLM5c' : None,
                 'ALTI' : None,
+                'VHM' : -3.4028234663852886e+38,
                 'TH' : -3.4028234663852886e+38,
+                'TCDCopHRL': 240.0,
                 'TCD1' : -1,
+                'TCD2' : -1,
                 'hard_predictions': I_NODATA_VAL,
                 'soft_predictions': np.finfo(np.float32).max}
-
-# maximum values used for clipping regression predictions at inference (minimum value is assumed to be 0)
-CLIP_PRED_VAL = {'TH': 100, 'TCD': 100}
-
-# value above which regression targets are ignored
-IGNORE_TARGET_VAL = {   'TH': None, #40, 
-                        'TCD': None}
 
 # operators to use to check nodata
 NODATA_CHECK_OPERATOR = {'SI2017': ['all', 'all'], # operators used to skip a training patch
                         'ALTI': ['all', 'all'],
+                        'TLM3c': 'any',
                         'TLM4c': 'any',
                         'TLM5c': 'any',
                         'TH' : 'all',
@@ -47,28 +53,29 @@ NODATA_CHECK_OPERATOR = {'SI2017': ['all', 'all'], # operators used to skip a tr
 GET_OPERATOR = {'any': np.any, 'all': np.all}
 
 # relative resolution of the datasources
-RELATIVE_RESOLUTION = {'SI2017': 4, 'ALTI': 2, 'TLM4c': 1, 'TLM5c': 1, 'TH': 1,'TCD': 1}
+RELATIVE_RESOLUTION = {'SI2017': 4, 'ALTI': 2, 'TLM3c': 1, 'TLM4c': 1, 'TLM5c': 1, 'VHM': 1, 'TH': 1,'TCD': 1}
 
 # number of channels
 CHANNELS = {'SI2017': 3, 'ALTI' : 1}
 
 # class names
-CLASS_NAMES = {'ForestPresenceAbsence' : ['NF', 'F'], 'TLM4c': ['NF', 'OF', 'CF', 'SF'], 
+CLASS_NAMES = {'ForestPresenceAbsence' : ['NF', 'F'], 'TLM3c': ['NF', 'OF', 'CF'], 'TLM4c': ['NF', 'OF', 'CF', 'SF'], 
                 'ForestType': ['OF', 'CF', 'SF'], 'TH': None, 'TCD': None}
 
 # number of classes
-N_CLASSES = {'ForestPresenceAbsence' : 2, 'TLM4c': 4, 'ForestType': 3, 'TH': None, 'TCD': None}
+N_CLASSES = {'ForestPresenceAbsence' : 2, 'TLM3c': 3, 'TLM4c': 4, 'ForestType': 3, 'TH': None, 'TCD': None}
 
 # thresholds for intermediate variables
-THRESHOLDS = {'TH': [1.0, 3.0], 'TCD': [20.0, 60.0]}
+THRESHOLDS = {'TH': [1.0, 3.0], 'TCD': [20.0, 60.0], 'VHM': [20.0, 60.0]}
 
 
 #                             TCD   <20       [20, 60)    >= 60]    TH
 RULES = {'TH_TCD': torch.tensor([   0,        0,          0,        # < 1
                                     0,        0,          2,        # [1, 3)
                                     0,        1,          3])}      # >= 3
-eps, C = 1e-3, 3 
-PROB_ENCODING = {
+
+C = 3
+prob_encoding = lambda eps: {
     'f':              # NF              OF              CF          SF
     torch.tensor([  [   1.0 - 3*eps,    eps,            eps,        eps         ],      # code 0: non-forest
                     [   eps,            1.0 - 3*eps,    eps,        eps         ],      # code 1: open forest
@@ -79,7 +86,8 @@ PROB_ENCODING = {
     torch.tensor([  [   1.0/3.0,        1.0/3.0,        1.0/3.0,     eps       ],   # code 0: non-forest
                     [   1.0 - 2*eps,    eps,            eps,         1.0 - eps ],   # code 1: open forest
                     [   eps,            eps,            1.0 - 2*eps, 0.5       ],   # code 2: non-forest or shrub forest
-                    [   eps,            0.5 - eps/2,    0.5 - eps/2, 1.0 - eps ]])} # code 3: closed forest or shrub forest
+                    [   eps,            0.5 - eps/2,    0.5 - eps/2, 1.0 - eps ]])  # code 3: closed forest or shrub forest
+                                } 
 
 # TLM translation for sub-tasks
 nodata_mapping = np.full(251, fill_value = I_NODATA_VAL)
@@ -95,6 +103,11 @@ TARGET_CONVERSION_TABLE = { 'ForestPresenceAbsence':    np.concatenate((np.array
 COLORMAP = {'ForestPresenceAbsence': {  
                         0: (0, 0, 0, 0),
                         1: (255, 255, 255, 255),
+                        },
+            'TLM3c': { 
+                        0: (0, 0, 0, 0),
+                        1: (21, 180, 0, 255),
+                        2: (25, 90, 0, 255)
                         },
             'TLM4c': { 
                         0: (0, 0, 0, 0),
@@ -116,7 +129,17 @@ CLASS_FREQUENCIES = {
     'ForestPresenceAbsence' : { # non-forest, forest (the latter including open forest, closed forest, shrub forest and forest patches)
         'all': {'train': np.array([0.7332189312030073, 0.2667810687969927])},
         'positives': {'train': np.array([0.6044306120401336, 0.3955693879598663])}
-                },  
+                },
+    'TLM3c': { # non-forest, open forest, closed forest (WRONG, forest patches considererd as non-forest)
+        'all': {    'train': np.array([0.7534807958646614, 0.016324748120300762, 0.23019445601503774]),
+                    'val': np.array([0.7035771146711639, 0.0186117234401349, 0.2778111618887016]),
+                    'test': np.array([0.7641926017830614, 0.015225793462109956, 0.22058160475482902])
+                },
+        'positives' : {'train': np.array([0.6042690374170179, 0.02621146771273391, 0.3695194948702477]),
+                    'val': np.array([0.5733500048543688, 0.02679510194174758, 0.3998548932038842]),
+                    'test': np.array([0.6230919406175778, 0.024336940617577196, 0.3525711187648456])
+                    }
+                },    
     'TLM4c': { # non-forest, open forest, closed forest, shrub forest 
         'all': {
             'train': np.array([0.7345804185679481, 0.016352612423765258, 0.23061658770687501, 0.018450381301411623]),
@@ -149,13 +172,17 @@ CLASS_FREQUENCIES = {
 default_tilenum_extractor = lambda x: os.path.splitext('_'.join(os.path.basename(x).split('_')[-2:]))[0]
 TILENUM_EXTRACTOR = {'SI2017': lambda x: '_'.join(os.path.basename(x).split('_')[2:4]),
                     'ALTI': default_tilenum_extractor,
+                    'TLM3c': default_tilenum_extractor,
                     'TLM4c': default_tilenum_extractor,
                     'TLM5c': default_tilenum_extractor,
+                    'VHM': default_tilenum_extractor,
                     'TH': default_tilenum_extractor,
-                    'TCD1': default_tilenum_extractor}
+                    'TCDCopHRL': default_tilenum_extractor,
+                    'TCD1': default_tilenum_extractor,
+                    'TCD2': default_tilenum_extractor}
 
 IGNORE_INDEX = I_NODATA_VAL
-IGNORE_FLOAT = F_NODATA_VAL #np.finfo(np.float32).max
+IGNORE_FLOAT = F_NODATA_VAL 
 
 ############## ExpUtils class #################################################
 
@@ -165,7 +192,7 @@ class ExpUtils:
     experiment
     """
 
-    def __init__(self, input_sources, interm_target_sources = [], target_source = None, decision = 'f'):
+    def __init__(self, input_sources, interm_target_sources = [], target_source = None, decision = 'f', epsilon_rule=1e-3):
         """
         Args:
             - inputs_sources (list of str): input sources
@@ -173,6 +200,7 @@ class ExpUtils:
             - target_source (str): main classification target source
             - decision (str): decision type, 'f' for all decisions at the same level (e.g. non-forest, open forest, 
                 closed forest, shrub forest), 'h' for a 2-step decision (forest/non-forest then forest type)
+            - epsilon_rule (float): stabilizing factor to compute hard-coded log-probabilities of the rule module
         """
 
         # Get methods and parameters corresponding to input and target sources
@@ -198,7 +226,6 @@ class ExpUtils:
         
 
         if self.sem_bot:
-            self.interm_target_means = [MEANS[source] for source in interm_target_sources]
             self.interm_target_stds = [STDS[source] for source in interm_target_sources]
             self.interm_target_nodata_val = [NODATA_VAL[source] for source in interm_target_sources]
             self.interm_target_sources = interm_target_sources
@@ -214,7 +241,6 @@ class ExpUtils:
 
             self.interm_target_nodata_check_operator = [GET_OPERATOR[NODATA_CHECK_OPERATOR[source]] for source in \
                                                     interm_concepts]
-            self.interm_target_ignore_val = [IGNORE_TARGET_VAL[source] for source in interm_concepts]
 
         # compute relative scale (resolution) of the data sources
         sources = input_sources + interm_concepts + [target_source] if self.sem_bot else input_sources + [target_source]
@@ -288,9 +314,9 @@ class ExpUtils:
             if decision == 'h':
                 self.preprocess_training_target = self.preprocess_training_hierarchical_target
             else: 
-                self.preprocess_training_target = lambda x : torch.from_numpy(TARGET_CONVERSION_TABLE['TLM4c'][x]) #.unsqueeze(0)
+                self.preprocess_training_target = lambda x : torch.from_numpy(TARGET_CONVERSION_TABLE['TLM4c'][x])
         else:
-            self.preprocess_training_target = lambda x : torch.from_numpy(x).long() #.unsqueeze(0)
+            self.preprocess_training_target = lambda x : torch.from_numpy(x).long()
 
         # target preprocessing for inference
         if target_source == 'TLM5c' and decision == 'h':
@@ -298,15 +324,9 @@ class ExpUtils:
         else: # same processing function for training and inference
             self.preprocess_inference_target = lambda x : x
 
-        
-            
-        # set patch parameters for inference
-        self.patch_size = 128 # patch size in the coarsest input/target
+        # set patch_parameters for training
         self.num_patches_per_tile = 32 #64 #(1000/128)^2 = 61
-        self.padding = self.patch_size // 4 # must be even
-        self.patch_stride = self.patch_size - self.padding
-        self.kernel_std = 16
-        self.tile_margin = 64
+        self.patch_size = 128 # patch size in the coarsest input/target
 
         # parameters for intermediate targets
         if self.sem_bot:
@@ -327,7 +347,8 @@ class ExpUtils:
                     
             self.corr_channels = self.output_channels - 1
             self.rules = RULES['_'.join(interm_concepts)]
-            self.prob_encoding = PROB_ENCODING[decision]
+            print('epsilon_rule is set to {} in the rule module.'.format(epsilon_rule))
+            self.prob_encoding = prob_encoding(epsilon_rule)[decision]
             self.rule_decision_func = self.argmax_randtie_decision
             if decision == 'f':
                 self.act_encoding = torch.log(self.prob_encoding) + C
@@ -335,7 +356,6 @@ class ExpUtils:
                 self.act_encoding = torch.cat((torch.log(self.prob_encoding[:, :-1]) + C, 
                                             torch.logit(self.prob_encoding[:, -1:], eps=None)), 
                                             dim = 1)
-                #self.rule_decision_func_2 = self.binary_decision
             self.rule_decision_func_2 = self.decision_func_2
             self.preprocess_training_interm_targets = [self.preprocess_training_interm_regr_target] * self.n_interm_targets
             self.preprocess_inference_interm_targets = [self.preprocess_inference_interm_regr_target] * self.n_interm_targets
@@ -402,7 +422,7 @@ class ExpUtils:
 
     def postprocess_regr_predictions(self, pred, idx):
         """postprocesses regression predictions for idx-th variable (1 channel)"""
-        return pred * self.interm_target_stds[idx] 
+        return pred * self.interm_target_stds[idx]
 
     ######################## Methods to check nodata ##########################
 
@@ -441,39 +461,23 @@ class ExpUtils:
                             self.interm_target_nodata_check_operator)))
 
     ######## Methods for converting soft predictions to hard predictions ######
-
     def argmax_decision(self, output):
-        output_hard = output.argmax(axis=0).astype(np.uint8)
+        output_hard = output.argmax(axis=1).astype(np.uint8) # axis 0 is the batch dimension
         return output_hard
-    
-    @staticmethod
-    def random_num_per_grp_cumsumed(L):
-        # For each element in L pick a random number within range specified by it
-        # The final output would be a cumsumed one for use with indexing, etc.
-        r1 = np.random.rand(np.sum(L)) + np.repeat(np.arange(len(L)),L)
-        offset = np.r_[0,np.cumsum(L[:-1])]
-        return r1.argsort()[offset]
 
     def argmax_randtie_decision(self, output): 
-        max_mask = output==output.max(axis=0,keepdims=True)
-        n_max = max_mask.sum(axis=0)
+        max_mask = output==output.max(axis=1,keepdims=True) # axis 0 is the batch dimension
+        n_max = max_mask.sum(axis=1)
         
         if np.all(n_max == 1): # no ties
             return self.argmax_decision(output)
         else:
             noise = np.random.rand(*output.shape)
             arr = output + noise * max_mask
-            return arr.argmax(axis=0).astype(np.uint8)
+            return arr.argmax(axis=1).astype(np.uint8)
 
     def binary_decision(self, output):
         output_hard = (output > 0.5).astype(np.uint8)
-        return output_hard
-    
-    def binary_randtie_decision(self, output):
-        eps = np.random.normal(0, loc=0.0, scale=1e-3, size=output.shape) 
-        noisy_output = output 
-        noisy_output[output == 0.5] += eps[output == 0.5]
-        output_hard = (noisy_output > 0.5).astype(np.uint8)
         return output_hard
 
     def argmax_binary_decision(self, output):
@@ -482,8 +486,8 @@ class ExpUtils:
             - new class 0 corresponds to original class 0
             - new class 1 corresponds to all classes other than 0 (their logits are summed up)
         """
-        bin_output = np.concatenate((output[0:1], np.sum(output[1:], axis = 0, keepdims=True)), axis = 0)
-        output_hard = bin_output.argmax(axis=0).astype(np.uint8)
+        bin_output = np.concatenate((output[:, 0:1], np.sum(output[:, 1:], axis = 1, keepdims=True)), axis = 1)
+        output_hard = bin_output.argmax(axis=1).astype(np.uint8)
         return output_hard
 
     def target_binary_recombination(self, targets):
@@ -515,17 +519,6 @@ class ExpUtils:
             raise ValueError('Both n_pos and n_neg should be specified')
         return np.max(prob) / prob
 
-    def create_kernel(self,scale):
-        # create a 2D gaussian kernel
-        size = self.patch_size*scale
-        ax = np.linspace(-(size - 1) / 2., (size - 1) / 2., size)
-        gauss = np.exp(-0.5 * np.square(ax) / np.square(self.kernel_std))
-        kernel = np.outer(gauss, gauss)
-        return kernel / np.min(kernel)
-
-    def get_inference_kernel(self):
-        kernel = self.create_kernel(self.target_scale)
-        return kernel
 
     
 

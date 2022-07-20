@@ -13,9 +13,18 @@ def extract_checkpoint(in_fn, out_fn, epoch):
     d = torch.load(in_fn, map_location='cpu')
     args = d['args']
     checkpoint = {'model': d['model_checkpoints'][epoch],
-                                'optimizer': d['optimizer_checkpoints'][epoch],
-                                'epoch': epoch,
-                                'model_params': {'decision': args['decision']}}
+                    'optimizer': d['optimizer_checkpoints'][epoch],
+                    'epoch': epoch}
+    try:
+        checkpoint['random_state'] = d['random_state'][epoch]
+    except KeyError:
+        pass
+    checkpoint['model_params'] = {}
+    for key in 'decision', 'epsilon_rule':
+        try:
+            checkpoint['model_params'][key] = args[key]
+        except KeyError:
+            pass
     torch.save(checkpoint, out_fn)
 
 def truncate_training_file(in_fn, out_fn, trunc_epoch):
@@ -90,8 +99,10 @@ def compare_model_files(fn1, fn2):
     validate_state_dicts(m1, m2)
 
 if __name__ == "__main__":
-    extract_checkpoint('output/sb_hierarchical_MSElog1em1_MSE_doubling_negatives/training/sb_hierarchical_MSElog1em1_MSE_doubling_negatives_metrics.pt', 
-                       'output/sb_hierarchical_MSElog1em1_MSE_doubling_negatives/training/sb_hierarchical_MSElog1em1_MSE_doubling_negatives_model_epoch_14.pt', 14)
-    truncate_training_file('output/sb_hierarchical_MSElog1em1_MSE_doubling_negatives/training/sb_hierarchical_MSElog1em1_MSE_doubling_negatives_metrics.pt',
-                           'output/sb_hierarchical_MSElog1em1_MSE_doubling_negatives/training/sb_hierarchical_MSElog1em1_MSE_doubling_negatives_metrics_epoch_14.pt',
-                           14)
+    experiment = 'sb_seed_0'
+    epoch = 4
+    extract_checkpoint('output/{}/training/{}_metrics.pt'.format(experiment, experiment), 
+                       'output/{}/training/{}_model_epoch_{}.pt'.format(experiment, experiment, epoch), epoch)
+    truncate_training_file('output/{}/training/{}_metrics.pt'.format(experiment, experiment),
+                           'output/{}/training/{}_metrics_epoch_{}.pt'.format(experiment, experiment, epoch),
+                           epoch)

@@ -27,7 +27,7 @@ class RuleSegmentationHead(nn.Module):
     a segmentation map
     """
     def __init__(self, in_channels, out_channels, interm_channels, corr_channels, thresholds, rules, act_encoding,
-                     kernel_size=3, decision = 'f'):
+                     kernel_size=3, decision = 'f'): 
         """
         Args:
             - in_channels (int): number of input channels, i.e. number of channels in the incoming correction activations
@@ -105,8 +105,12 @@ class RuleSegmentationHead(nn.Module):
         return cat
 
     def process_regr_logits(self, x):
-        return f.relu(x, inplace=False)
-    
+        """
+        The softplus activation makes sure the outputs are positive and avoids vanishing gradients that can be obtained 
+        with sigmoid or reLU
+        """
+        return f.softplus(x, beta=0.5)
+
     def thresholds(self):
         for i in range(self.interm_var):
             yield self.__getattr__('thresholds_'+str(i))
@@ -115,7 +119,7 @@ class RuleSegmentationHead(nn.Module):
         y = cat[:,-1]
         for i in range(self.interm_var - 2, -1, -1):
             y = y + cat[:, i] * self.n_cat[i+1] 
-        y = self.rules[y]
+        y = self.rules[y.long()]
         
         return y
 

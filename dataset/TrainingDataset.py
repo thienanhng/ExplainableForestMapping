@@ -5,14 +5,21 @@ import rasterio
 from rasterio.errors import RasterioError, RasterioIOError
 from math import ceil
 import pandas as pd
+import random
 
 class TrainingDataset(IterableDataset):
     """
     Dataset for training. Generates random small patches over the whole training set.
     """
-
-    def __init__(self, dataset_csv, n_input_sources, exp_utils, control_training_set = True, n_neg_samples = None, 
-                 verbose=False, debug = False):
+    def __init__(self, 
+                 dataset_csv, 
+                 n_input_sources, 
+                 exp_utils, 
+                 control_training_set=True, 
+                 n_neg_samples=None,
+                 patch_size=128, 
+                 verbose=False, 
+                 debug=False):
         """
         Args:
             - dataset_csv (str): csv file listing the dataset inputs and target files, with one tile per row
@@ -20,19 +27,20 @@ class TrainingDataset(IterableDataset):
             - exp_utils (ExpUtils): ExpUtils object specifying methods and parameters to use for the current experiment
             - control_training_set (bool): whether to control the number of images without class 0 use at each epoch
             - n_neg_samples (int): number of negative samples (i.e. containing class 0 only) to use
+            - patch_size (int): size of the small patches to extract from the input tiles
             - debug (bool): whether to use only a subset of the files listed in "dataset_csv", to speed up debugging
         """
 
         self.n_input_sources = n_input_sources
         self.control_training_set = control_training_set
         
-        self.patch_size = exp_utils.patch_size
+        self.patch_size = patch_size
         self.num_patches_per_tile = exp_utils.num_patches_per_tile
         self.exp_utils = exp_utils
         self.verbose = verbose
         self.fns = pd.read_csv(dataset_csv)
         if debug:
-            self.fns = self.fns.iloc[:50]
+            self.fns = self.fns.iloc[:30]
         self._check_df_columns()
         
         self.n_fns_all = len(self.fns)
@@ -95,8 +103,9 @@ class TrainingDataset(IterableDataset):
             elif n_neg_samples < self.n_negatives: # pick negative samples randomly
                 draw_idx = np.random.choice(self.n_negatives, size=(n_neg_samples,), replace = False)
                 self.fns = pd.concat([self.fns_positives, self.fns_negatives.iloc[draw_idx]], ignore_index=True) 
+                print(draw_idx)
             elif n_neg_samples >= self.n_negatives: # use all negative samples
-                self.fns = pd.concat([self.fns_positives + self.fns_negatives], ignore_index=True)
+                self.fns = pd.concat([self.fns_positives, self.fns_negatives], ignore_index=True)
             print('Using {} training samples out of {}'.format(len(self.fns), self.n_fns_all))
             
     def shuffle(self):
@@ -111,18 +120,20 @@ class TrainingDataset(IterableDataset):
         else:
             worker_id = worker_info.id
             num_workers = worker_info.num_workers
-        # WARNING: when several workers are created they all have the same numpy random seed but different torch random 
-        # seeds. 
-        seed = torch.randint(low=0,high=2**32-1,size=(1,)).item()
-        np.random.seed(seed) # set a different seed for each worker
-
-        # define the range of files that will be processed by the current worker: each worker receives 
-        # ceil(num_filenames / num_workers) filenames
+        # define the range of files that will be processed by the current worker
         num_files_per_worker = ceil(len(fns) / num_workers)
         lower_idx = worker_id * num_files_per_worker
         upper_idx = min(len(fns), (worker_id+1) * num_files_per_worker)
 
         return lower_idx, upper_idx
+    
+    @staticmethod
+    def seed_worker(worker_id):
+        """from https://pytorch.org/docs/stable/notes/randomness.html"""
+        worker_seed = torch.initial_seed() % 2**32
+        # print('Worker seed {}: {}'.format(worker_id, worker_seed))
+        np.random.seed(worker_seed)
+        random.seed(worker_seed)
 
     def _stream_tile_fns(self, lower_idx, upper_idx):
         """Generator providing input and target paths tile by tile from lower_idx to upper_idx"""
@@ -141,7 +152,6 @@ class TrainingDataset(IterableDataset):
     def _generate_patch(self, data, num_skipped_patches, coord = None):
         """
         Generates a patch from the input(s) and the targets, randomly or using top left coordinates "coord"
-
         Args:
             - data (list of (list of) tensors): input and target data
             - num_skipped_patches (int): current number of skipped patches (will be updated)
@@ -257,8 +267,16 @@ class MultiTargetTrainingDataset(TrainingDataset):
     Dataset for training. Generates random small patches over the whole training set, with input data, target data as
     well as intermediate target(s).
     """
-    def __init__(self, dataset_csv, n_input_sources, n_interm_target_sources, exp_utils, control_training_set=True, 
-                 n_neg_samples=None, verbose=False, debug=False):
+    def __init__(self, 
+                 dataset_csv, 
+                 n_input_sources, 
+                 n_interm_target_sources, 
+                 exp_utils, 
+                 control_training_set=True, 
+                 patch_size=128, 
+                 n_neg_samples=None, 
+                 verbose=False, 
+                 debug=False):
         """
         Args:
             - n_interm_target_sources: number of intermediate targets to use (i.e. number of intermediate concept 
@@ -271,7 +289,7 @@ class MultiTargetTrainingDataset(TrainingDataset):
         self.n_interm_target_sources = n_interm_target_sources
         
         super().__init__(dataset_csv, n_input_sources, exp_utils, control_training_set=control_training_set, 
-                         n_neg_samples=n_neg_samples, verbose=verbose, debug=debug)
+                         n_neg_samples=n_neg_samples, patch_size=patch_size, verbose=verbose, debug=debug)
         
         
     def _check_df_columns(self):

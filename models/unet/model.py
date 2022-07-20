@@ -7,7 +7,7 @@ from torch import Tensor
 import torch
 
 # constants for default arguments
-eps, C = 1e-3, 2
+eps, C = 1e-3, 3
 PROB_ENCODING = torch.tensor([  [1.0 - 3*eps,   eps,            eps,            eps         ], 
                                 [eps,           1.0 - 3*eps,    eps,            eps         ], 
                                 [eps,           eps,            1.0 - 3*eps,    eps         ],

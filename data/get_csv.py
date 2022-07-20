@@ -10,24 +10,42 @@ from tqdm import tqdm
 
 data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 'Data')
 DIR = {'SI2017': os.path.join(data_dir, 'SwissImage/2017_25cm'),
+    'TLM2c': os.path.join(data_dir, 'TLMRaster/F'),
+    'TLM3c': os.path.join(data_dir, 'TLMRaster/OF_F'),
+    'TLM4c': os.path.join(data_dir, 'TLMRaster/OF_F_SF'),
     'TLM5c': os.path.join(data_dir, 'TLMRaster/5c'),
     'ALTI': os.path.join(data_dir, 'SwissALTI3D'),
     'VHM': os.path.join(data_dir, 'VHM_NFI'),
     'TH': os.path.join(data_dir, 'TH_NFI'),
+    'VHM2': os.path.join(data_dir, 'VHM_NFI_bin_2m'),
+    'TCD': os.path.join(data_dir, 'Copernicus_HRL/TCD_2018_010m_ch_03035_v020/DATA_edited/1m_nn'),
+    'TCD2': os.path.join(data_dir, 'TCD_NFI_2m'),
     'TCD1': os.path.join(data_dir, 'TCD_NFI_1m')}
 
 PREFIX = {'SI2017': 'DOP25_LV95', 
+    'TLM2c': 'TLM_F',
+    'TLM3c': 'TLM_OF_F',
+    'TLM4c': 'TLM_OF_F_SF',
     'TLM5c': 'TLM5c',
     'ALTI' : 'SWISSALTI3D_0.5_TIFF_CHLV95_LN02',
     'VHM' : 'VHM_NFI',
     'TH' : 'TH_NFI',
+    'VHM2' : 'VHM_NFI_bin_2m',
+    'TCD' : 'Cop_HRL_TCD_nn',
+    'TCD2' : 'TCD_NFI_2m',
     'TCD1' : 'TCD_NFI_1m'}
 
 SUFFIX = {'SI2017': '_2017_1.tif', 
+    'TLM2c': '.tif',
+    'TLM3c': '.tif',
+    'TLM4c': '.tif',
     'TLM5c': '.tif',
     'ALTI' : '.tif',
     'VHM' : '.tif',
     'TH' : '.tif',
+    'VHM2' : '.tif',
+    'TCD' : '.tif',
+    'TCD2' : '.tif',
     'TCD1' : '.tif'}
 
 VAL_VIZ_ZONE = [ [(2568, 2572), (1095, 1101)],
@@ -38,10 +56,14 @@ VAL_VIZ_ZONE = [ [(2568, 2572), (1095, 1101)],
 default_tilenum_extractor = lambda x: os.path.splitext('_'.join(os.path.basename(x).split('_')[-2:]))[0]
 TILENUM_EXTRACTOR = {'SI2017': lambda x: '_'.join(os.path.basename(x).split('_')[2:4]),
                     'ALTI': default_tilenum_extractor,
+                    'TLM3c': default_tilenum_extractor,
+                    'TLM4c': default_tilenum_extractor,
                     'TLM5c': default_tilenum_extractor,
                     'VHM': default_tilenum_extractor,
                     'TH': default_tilenum_extractor,
-                    'TCD1': default_tilenum_extractor}
+                    'TCDCopHRL': default_tilenum_extractor,
+                    'TCD1': default_tilenum_extractor,
+                    'TCD2': default_tilenum_extractor}
 
 def get_fn(dir, tk, tilenum_extractor):
     """
@@ -68,7 +90,7 @@ def get_dataset_csv(input_sources, tilekeys_fns, output_fns, interm_target_sourc
     """
 
     # check that the directories exist
-    sources = input_sources
+    sources = input_sources.copy()
     if interm_target_sources is not None:
         sources += interm_target_sources
     if target_source is not None:
@@ -190,11 +212,25 @@ def get_filelist_csv(source, tilekeys_csv_fn, output_csv_fn, check_exist=False):
 
 if __name__ == "__main__":
     
-    source = 'SI2017'
-    set = 'val'
+    # source = 'SI2017'
+    # set = 'val'
+    # tilekeys_csv_fn = 'data/csv/TileKeys_{}.csv'.format(set)
+    # output_csv_fn = 'data/csv/{}_{}.csv'.format(source, set)
+    # get_filelist_csv(source, tilekeys_csv_fn, output_csv_fn, check_exist=False)
+    
+    input_sources = ['SI2017', 'ALTI']
+    target_source = None #'TLM5c'
+    interm_target_sources = [] #['TH', 'TCD1']
+    set = 'test_with_context'
     tilekeys_csv_fn = 'data/csv/TileKeys_{}.csv'.format(set)
-    output_csv_fn = 'data/csv/{}_{}.csv'.format(source, set)
-    get_filelist_csv(source, tilekeys_csv_fn, output_csv_fn, check_exist=False)
+    output_csv_fn = 'data/csv/{}_{}.csv'.format('_'.join(input_sources), set)
+    # output_csv_fn = 'data/csv/{}_{}_{}.csv'.format('_'.join(input_sources), '_'.join(interm_target_sources + [target_source]), set)
+    get_dataset_csv(input_sources=input_sources,
+                    tilekeys_fns=tilekeys_csv_fn, 
+                    output_fns=output_csv_fn, 
+                    interm_target_sources=interm_target_sources, 
+                    target_source=target_source)
+    # write_target_counts(output_csv_fn, n_classes=5)
     
     
     

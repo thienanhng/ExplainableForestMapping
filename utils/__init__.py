@@ -1,4 +1,4 @@
-from .train_utils import fit, WeightedMAE, WeightedMSE, WeightedMSElog, WeightedRMSE, WeightedRMSElog, CrossEntropyLossWithCount
+from .train_utils import fit, WeightedMAE, WeightedMSE, WeightedMSElog, WeightedRMSE, WeightedRMSElog, WeightedBCEWithLogitsLoss
 from .infer_utils import Inference
 from .data_utils import get_fns
 from .write_utils import Writer

@@ -7,14 +7,11 @@ import pandas as pd
 import numpy as np
 import torch
 import torch.nn as nn
-from .eval_utils import cm2rates, rates2metrics, my_confusion_matrix, get_regr_error_map, get_regr_error, get_seg_error_map
+from .eval_utils import cm2rates, rates2metrics, my_confusion_matrix, get_regr_error_map, get_mae, get_seg_error_map
 from dataset import InferenceDataset
 from utils.ExpUtils import I_NODATA_VAL, F_NODATA_VAL
 from .write_utils import Writer
-import random
 from tqdm import tqdm
-import gc
-
 
 class Inference():
     """
@@ -25,30 +22,43 @@ class Inference():
     otherwise a new nodata value is introduced depending on the raster data type. When calling infer(), the criteria 
     ignore_index attributes are modified accordingly.
     """
-    def __init__(self, model, file_list, exp_utils, output_dir = None, 
-                        evaluate = True, save_hard = True, save_soft = True, save_error_map = False,
-                        batch_size = 32, num_workers = 0, device = 0, undersample = 1, decision = 'f'):
+    def __init__(self, model, file_list, exp_utils, padding=64, tile_margin=64, output_dir=None, evaluate=True, 
+                save_hard=True, save_soft=True, save_error_map=False, save_corr=False, save_interm=False,
+                batch_size=1, num_workers=0, device=0, undersample=1, decision='f', random_seed=None,
+                weight_bin_loss=False):
 
         """
         Args:
             - model (nn.Module): model to perform inference with
             - file_list (str): csv file containing the files to perform inference on (1 sample per row)
             - exp_utils (ExpUtils): object containing information of the experiment/dataset
+            - padding (int): margin to remove around predictions
+            - tile_margin (int): margin to read around each tile to provide additional context (should be equal or 
+                smaller than padding)
             - output_dir (str): directory where to write output files
             - evaluate (bool): whether to evaluate the predictions
             - save_hard (bool): whether to write hard predictions into image files
             - save_soft (bool): whether to write soft predictions into image files
+            - save_corr (bool): whether to write correction activations (semantic bottleneck model) and a change map 
+                (before vs. after correction) into image files
+            - save_interm (bool): whether to write intermediate predictions (semantic bottleneck model) into image files
             - batch_size (int): batch size
             - num_workers (int): number of workers to use for the DataLoader. Recommended value is 0 because the tiles
                 are processed one by one
             - device (torch.device): device to use to perform inference 
             - undersample (int): undersampling factor to reduction the size of the dataset. Example: if undersample = 100, 
                 1/100th of the dataset's samples will be randomly picked to perform inference on.
+            - random_seed (int): random seed for Pytorch
+            - weight_bin_loss (bool): weight the binary forest presence/absence loss with weights from the class 
+            of the full set of classes. 
         """
 
         self.evaluate = evaluate  
         self.save_hard = save_hard
         self.save_soft = save_soft
+        self.save_corr = save_corr
+        self.save_interm = save_interm
+        self.save_error_map = save_error_map
         self.model = model
         self.output_dir = output_dir
         self.batch_size = batch_size
@@ -57,10 +67,16 @@ class Inference():
         self.undersample = undersample
         self.exp_utils = exp_utils
         self.binary_map = self.exp_utils.decision_func_2 is not None # generate binary map
-        self.patch_size = self.exp_utils.patch_size
+        self.padding = padding
+        self.tile_margin = tile_margin
         self.decision = decision
+        self.weight_bin_loss = weight_bin_loss
         self.input_vrt_fn = None # used to indicate that virtual raster mosaic(s) has not been created yet
-        self.save_error_map = save_error_map
+        
+        g = torch.Generator()
+        if random_seed is not None:
+            g.manual_seed(random_seed)
+        self.g = g
 
         self.n_inputs = self.exp_utils.n_input_sources
         self.sem_bot = self.exp_utils.sem_bot
@@ -87,9 +103,6 @@ class Inference():
                 raise RuntimeError('"target" column must be provided in the file list to compute error maps and metrics')
         self.n_samples = len(df)
         self._fns_df = df # self._fns_df should not be modified
-
-        # Define predictions averaging kernel
-        self.kernel = torch.from_numpy(self.exp_utils.get_inference_kernel()) #.to(device)
 
         # Define output normalization (logits -> probabilities) functions
         if self.decision == 'f':
@@ -125,7 +138,7 @@ class Inference():
     def _get_col_names(self):
         """Get the column names used to read the dataset dataframe"""
         if self.n_inputs < 2:
-            self.input_col_names = 'input'
+            self.input_col_names = ['input']
         else:
             self.input_col_names = ['input_' + str(i) for i in range(self.n_inputs)]
         if self.sem_bot:
@@ -226,20 +239,12 @@ class Inference():
 
     def _reset_cm(self):
         """Reset the confusion matrix/matrices with zeros"""
-        # if self.evaluate:
-        #     self.cum_cm.fill(0)
-        #     if self.binary_map:
-        #         self.cum_cm_2.fill(0)
-        #     if self.decision == 'h':
-        #         self.cum_cm_1.fill(0)
-        #     if self.sem_bot:
-        #         self.cum_cm_rule.fill(0)
         if self.evaluate:
             for key in self.cum_cms:
                 self.cum_cms[key].fill(0)
                 
 
-    def _get_decisions(self, actv, target_data, rule_actv=None, interm_actv=None, interm_target_data=None):
+    def _get_decisions(self, actv, target_data, rule_actv=None, interm_actv=None, interm_target_data=None, nodata_mask=None):
         """Obtain decisions from soft outputs (argmax) and update confusion matrix/matrices"""
         # define main and binary outputs/targets and compute hard predictions
         if self.decision == 'f':
@@ -257,23 +262,24 @@ class Inference():
                 output_hard_rule = None
             # define the targets 
             output_hard_2 = None
-            if self.evaluate: 
-                target = target_data
-                if self.binary_map:
-                    # get naive binary output
+            if self.evaluate or self.binary_map: 
+                # get naive binary output
+                output_hard_2 = self.exp_utils.decision_func_2(output_2)
+                if self.evaluate:
+                    target = target_data
                     target_2 = self.exp_utils.target_recombination(target_data)
                     #if self.exp_utils.decision_func_2 is not None:
-                    output_hard_2 = self.exp_utils.decision_func_2(output_2)
                     if self.sem_bot:
                         rule_target = target_data
-                        output_hard_rule_2 = self.exp_utils.rule_decision_func_2(output_rule_2)
+                if self.sem_bot:
+                    output_hard_rule_2 = self.exp_utils.rule_decision_func_2(output_rule_2)
          
         else:
             # define the outputs 
-            output_1 = actv[:-1]
-            output_2 = actv[-1]
+            output_1 = actv[:, :-1]
+            output_2 = actv[:, -1]
             if rule_actv is not None:
-                output_rule_1, output_rule_2 = rule_actv[:-1], rule_actv[-1]
+                output_rule_1, output_rule_2 = rule_actv[:, :-1], rule_actv[:, -1]
             # compute hard predictions
             output_hard_1 = self.exp_utils.decision_func(output_1) # ForestType
             output_hard_2 = self.exp_utils.decision_func_2(output_2) # forest presence/absence
@@ -286,21 +292,34 @@ class Inference():
                 output_hard_rule = None
             # define the targets
             if self.evaluate or self.save_error_map:
-                target = target_data[-1] # TLM4c
-                target_1 = target_data[0] # ForestType
+                target = target_data[:, -1] # TLM4c
+                target_1 = target_data[:, 0] # ForestType
                 if output_hard_2 is not None:
-                    target_2 = target_data[1] # forest presence/absence
+                    target_2 = target_data[:, 1] # forest presence/absence
                 if output_hard_rule is not None:
-                    rule_target = target_data[-1] # TLM4c
+                    rule_target = target_data[:, -1] # TLM4c
         if self.sem_bot:
             output_hard_regr = [None] * len(interm_actv)
             for i, t in enumerate(self.exp_utils.unprocessed_thresholds):
-                rep_thresh = np.tile(t[:, np.newaxis, np.newaxis], (1, *interm_actv[i].shape))
+                rep_thresh = np.tile(t[:, np.newaxis, np.newaxis, np.newaxis], (1, *interm_actv[i].shape))
                 output_hard_regr[i] = np.sum(interm_actv[i] > rep_thresh, axis = 0) 
         else:
             output_hard_regr = None
                     
-                    
+        # apply nodata value to invalid pixels (must be done before computing the confusion matrices)
+        if nodata_mask is not None:
+            output_hard[nodata_mask] = self.exp_utils.i_out_nodata_val
+            if output_hard_1 is not None:
+                output_hard_1[nodata_mask] = self.exp_utils.i_out_nodata_val
+            if output_hard_2 is not None:
+                output_hard_2[nodata_mask] = self.exp_utils.i_out_nodata_val   
+            if self.sem_bot:
+                for i in range(len(output_hard_regr)):
+                    output_hard_regr[i][nodata_mask] =  self.exp_utils.i_out_nodata_val 
+            if rule_actv is not None:
+                output_hard_rule[nodata_mask] = self.exp_utils.i_out_nodata_val
+                output_hard_rule_1[nodata_mask] = self.exp_utils.i_out_nodata_val
+                output_hard_rule_2[nodata_mask] = self.exp_utils.i_out_nodata_val       
                 
         ########## update confusion matrices #########
         # main task
@@ -361,184 +380,130 @@ class Inference():
             reports[key] = rates2metrics(cm2rates(self.cum_cms[key]), self.exp_utils.class_names[key])
         return reports
 
-    def _infer_sample(self, data, coords, dims, margins, 
+    def _infer_sample(self, batch_data, batch_margins, 
                       seg_criterion = None, seg_criterion_2 = None,
                       regr_criteria = None, correction_penalizer = None):
-        """Performs inference on one (multi-source) input accessed through dataset ds, with multiple outputs."""
+        """Performs inference on one batch."""
 
-        # compute dimensions of the output
-        s = self.exp_utils.target_scale
-        height, width = (d * s for d in dims)
-        top_margin, left_margin, bottom_margin, right_margin = (m*s for m in margins)
-
-        # initialize accumulators
-        output = torch.zeros((self.exp_utils.output_channels, height, width), dtype=torch.float32)
-        counts = torch.zeros((height, width), dtype=torch.float32)
-
-        if self.sem_bot:
-            # this assumes the the intermediate predictions, correction and the rule-based predictions has the same resolution 
-            # than the main target, and that the (complete) correction output has the same depth as the main output
-            interm_output = [None] * self.n_interm_targets
-            for i in range(self.n_interm_targets):
-                interm_output[i] = torch.zeros((self.exp_utils.interm_channels[i],height, width), dtype=torch.float32)
-            corr_output = torch.zeros((self.exp_utils.output_channels,height, width), dtype=torch.float32) 
-            rule_output = torch.zeros((self.exp_utils.output_channels, height, width), dtype=torch.float32)
-
-        inputs, targets, interm_targets = data
-        num_batches = len(inputs[0])
+        # forward pass
+        inputs, targets, interm_targets = batch_data 
+        input_data = [data.contiguous().to(self.device) for data in inputs] 
+        if targets.nelement() > 0: #targets is not None:
+            target_data = targets.to(self.device) 
+        if len(interm_targets) > 0: #interm_targets is not None:
+            interm_target_data = [data.contiguous().to(self.device) for data in interm_targets] 
+        with torch.no_grad():
+            # forward pass
+            if self.sem_bot:
+                t_main_actv, t_rule_categories, t_corr_actv, t_interm_actv = self.model(*input_data)
+            else:
+                t_main_actv = self.model(*input_data)
+        
+        # compute losses
+        seg_loss, valid_px = None, None
+        seg_bin_loss, valid_bin_px = None, None
+        if self.sem_bot:                                                                    
+            regr_loss, regr_weights = None, None
+            corr_loss, valid_corr_px = None, None        
         if self.evaluate:
             if seg_criterion is not None:
-                seg_losses = [0] * num_batches
-                valid_px_list = [0] * num_batches
-            if seg_criterion_2 is not None:
-                seg_bin_losses = [0] * num_batches
-                valid_px_bin_list = [0] * num_batches
+                if seg_criterion_2 is not None:
+                    seg_actv, bin_seg_actv = t_main_actv[:, :-1], t_main_actv[:, -1]
+                    seg_target, bin_seg_target = target_data[:, 0], target_data[:, 1].float() # BCE loss needs float
+                    # compute validation loss for binary subtask (last two channels)
+                    bin_seg_mask = bin_seg_target != self.target_vrt_nodata_val # custom ignore_index
+                    if self.weight_bin_loss:
+                        seg_bin_loss = seg_criterion_2(
+                            bin_seg_actv[bin_seg_mask], 
+                            bin_seg_target[bin_seg_mask], 
+                            torch.clamp((seg_target[bin_seg_mask]) + 1 * bin_seg_target[bin_seg_mask], min=None, max=255)).item()
+                    else:
+                        seg_bin_loss = seg_criterion_2(bin_seg_actv[bin_seg_mask], bin_seg_target[bin_seg_mask]).item()
+                    valid_bin_px = torch.sum(bin_seg_mask).item()
+                else:
+                    seg_actv = t_main_actv
+                    seg_target = target_data
+                # main loss
+                seg_mask = seg_target != seg_criterion.ignore_index
+                seg_loss = seg_criterion(seg_actv, seg_target).item()
+                valid_px = torch.sum(seg_mask).item()
             if self.sem_bot:
                 if regr_criteria is not None:
-                    regr_losses = [[0] * num_batches for _ in range(self.n_interm_targets)]
-                    regr_weights_list = [[0] * num_batches for _ in range(self.n_interm_targets)]
-                if correction_penalizer is not None:
-                    corr_losses = [0] * num_batches
-                    valid_px_corr_list = [0] * num_batches
-        # iterate over batches of small patches
-        for batch_idx in range(num_batches):
-            # get the prediction for the batch
-            input_data = [data[batch_idx].to(self.device) for data in inputs]
-            if targets is not None:
-                target_data = targets[batch_idx].to(self.device) 
-            if interm_targets is not None:
-                interm_target_data = [data[batch_idx].to(self.device) for data in interm_targets]
-            with torch.no_grad():
-                # forward pass
-                if self.sem_bot:
-                    t_main_actv, t_rule_categories, t_corr_actv, t_interm_actv = self.model(*input_data)
-                else:
-                    t_main_actv = self.model(*input_data)
-                # compute validation losses
-                if self.evaluate:
-                    if seg_criterion is not None:
-                        if seg_criterion_2 is not None:
-                            seg_actv, bin_seg_actv = t_main_actv[:, :-1], t_main_actv[:, -1]
-                            seg_target, bin_seg_target = target_data[:, 0], target_data[:, 1].float() # BCE loss needs float
-                            # compute validation loss for binary subtask (last two channels)
-                            bin_seg_mask = bin_seg_target != self.target_vrt_nodata_val # custom ignore_index
-                            seg_bin_losses[batch_idx] = seg_criterion_2(bin_seg_actv[bin_seg_mask], bin_seg_target[bin_seg_mask]).item()
-                            valid_px_bin_list[batch_idx] = torch.sum(bin_seg_mask).item()
-                        else:
-                            seg_actv = t_main_actv
-                            seg_target = target_data #.squeeze(1)
-                        # main loss
-                        
-                        seg_mask = seg_target != seg_criterion.ignore_index
-                        seg_losses[batch_idx] = seg_criterion(seg_actv, seg_target).item()
-                        valid_px_list[batch_idx] = torch.sum(seg_mask).item()
-                    if self.sem_bot:
-                        if regr_criteria is not None:
-                            for i in range(len(regr_criteria)):
-                                rl, rw = regr_criteria[i](t_interm_actv[:,i], 
-                                                            interm_target_data[i])
-                                regr_losses[i][batch_idx], regr_weights_list[i][batch_idx] = rl.item(), rw.item()
-                        if correction_penalizer is not None:
-                            # potentially biased estimation because of the margins
-                            corr_losses[batch_idx] = correction_penalizer(t_corr_actv).item()
-                            valid_px_corr_list[batch_idx] = t_corr_actv.shape[0] 
-                        
-                # move predictions to cpu
-                main_pred = self.seg_normalization(t_main_actv).cpu()
-                if self.sem_bot:
-                    rule_pred = self.exp_utils.prob_encoding[t_rule_categories.cpu()].movedim((0, 3, 1, 2), (0, 1, 2, 3))
-                    corr_actv = t_corr_actv.cpu()
-                    interm_pred = t_interm_actv.cpu() 
-            # accumulate the batch predictions
-            for j in range(main_pred.shape[0]):
-                x, y =  coords[batch_idx][j]
-                x_start, x_stop = x*s, (x+self.patch_size)*s
-                y_start, y_stop = y*s, (y+self.patch_size)*s
-                counts[x_start:x_stop, y_start:y_stop] += self.kernel
-                output[:, x_start:x_stop, y_start:y_stop] += main_pred[j] * self.kernel
-                if self.sem_bot:
-                    corr_output[:, x_start:x_stop, y_start:y_stop] += corr_actv[j] * self.kernel
-                    rule_output[:, x_start:x_stop, y_start:y_stop] += rule_pred[j] * self.kernel
-                    # assumes the intermediate predictions are at the same resolution than the main predictions
-                    for i in range(self.n_interm_targets):
-                        interm_output[i][:, x_start:x_stop, y_start:y_stop] += interm_pred[j, i] * self.kernel
-                
-        # normalize the accumulated predictions
-        counts = torch.unsqueeze(counts, dim = 0)
-        mask = counts != 0
-
-        rep_mask = mask.expand(output.shape[0], -1, -1)
-        rep_counts = counts.expand(output.shape[0], -1, -1)
-        output[rep_mask] = output[rep_mask] / rep_counts[rep_mask]
-        if self.sem_bot:
-            rule_output[rep_mask] = rule_output[rep_mask] / rep_counts[rep_mask]
-            corr_output[rep_mask] = corr_output[rep_mask] / rep_counts[rep_mask]
-            for i in range(self.n_interm_targets):
-                rep_mask = mask.expand(interm_output[i].shape[0], -1, -1)
-                rep_counts = counts.expand(interm_output[i].shape[0], -1, -1)
-                interm_output[i][rep_mask] = interm_output[i][rep_mask] / rep_counts[rep_mask]
-        
-        # aggregate losses
-        if self.evaluate:
-            if seg_criterion is None:
-                seg_loss, total_valid_px = None, None
-            else:
-                seg_loss, total_valid_px = self._aggregate_batch_losses(seg_losses, 
-                                                                        valid_px_list)
-            if seg_criterion_2 is None:
-                seg_bin_loss, total_valid_bin_px = None, None
-            else:
-                seg_bin_loss, total_valid_bin_px = self._aggregate_batch_losses(seg_bin_losses, 
-                                                                                valid_px_bin_list)
-            if self.sem_bot:                                                                    
-                if regr_criteria is None:
-                    regr_loss, total_valid_regr_px = None, None
-                else:
-                    regr_loss = [0]*len(regr_criteria)
-                    total_valid_regr_px = [0]*len(regr_criteria)
+                    regr_loss = [0] * len(regr_criteria)
+                    regr_weights = [0] * len(regr_criteria)
                     for i in range(len(regr_criteria)):
-                        regr_loss[i], total_valid_regr_px[i] = self._aggregate_batch_losses(regr_losses[i], 
-                                                                                        regr_weights_list[i])
-                if correction_penalizer is None:
-                    corr_loss, total_valid_corr_px = None, None
-                else:
-                    corr_loss, total_valid_corr_px = self._aggregate_batch_losses(corr_losses, 
-                                                                                valid_px_corr_list)
-        else:
-            seg_loss, total_valid_px = None, None 
-            seg_bin_loss, total_valid_bin_px = None, None
-            if self.sem_bot:
-                regr_loss, total_valid_regr_px = None, None
-                corr_loss, total_valid_corr_px = None, None
-        # remove margins
-        output = output[:, top_margin:height-bottom_margin, left_margin:width-right_margin]
+                        rl, rw = regr_criteria[i](t_interm_actv[:,i], 
+                                                    interm_target_data[i])
+                        regr_loss[i], regr_weights[i] = rl.item(), rw.item()
+                if correction_penalizer is not None:
+                    # biased estimation because of the margins
+                    corr_loss = correction_penalizer(t_corr_actv).item()
+                    valid_corr_px = t_corr_actv.shape[0]
+        
+        # move predictions to cpu
+        main_pred = self.seg_normalization(t_main_actv).cpu()
         if self.sem_bot:
-            rule_output = rule_output[:, top_margin:height-bottom_margin, left_margin:width-right_margin]
-            corr_output = corr_output[:, top_margin:height-bottom_margin, left_margin:width-right_margin]
-            interm_output = [t[:, top_margin:height-bottom_margin, left_margin:width-right_margin] for t in interm_output]
-            return (output, rule_output, corr_output, interm_output), \
-                    ((seg_loss, total_valid_px), (seg_bin_loss, total_valid_bin_px), \
-                        (regr_loss, total_valid_regr_px), (corr_loss, total_valid_corr_px))
+            rule_pred = self.exp_utils.prob_encoding[t_rule_categories.cpu()].movedim((0, 3, 1, 2), (0, 1, 2, 3))
+            corr_actv = t_corr_actv.cpu()
+            interm_pred = t_interm_actv.cpu()
+                
+        s = self.exp_utils.target_scale
+        padding = self.padding*s         
+            
+        height, width = main_pred.shape[-2:]
+        if self.batch_size == 1:
+            # remove margins
+            top_margin, left_margin, bottom_margin, right_margin = batch_margins[0]
+            main_pred = main_pred[:, :, top_margin:height-bottom_margin, left_margin:width-right_margin]
+            if self.sem_bot:
+                corr_actv = corr_actv[:, :, top_margin:height-bottom_margin, left_margin:width-right_margin]
+                rule_pred = rule_pred[:, :, top_margin:height-bottom_margin, left_margin:width-right_margin]
+                interm_pred = interm_pred[:, :, top_margin:height-bottom_margin, left_margin:width-right_margin]
         else:
-            return output, ((seg_loss, total_valid_px), (seg_bin_loss, total_valid_bin_px))
-    
-    @staticmethod            
-    def _aggregate_batch_losses(loss_list, valid_px_list):
-        total_valid_px = sum(valid_px_list)
-        if total_valid_px > 0:
-            seg_loss = np.average(loss_list, axis = 0, weights = valid_px_list)
+            # remove fixed margins
+            margin = self.tile_margin * s
+            main_pred = main_pred[:, :, margin:-margin, margin:-margin] 
+            if self.sem_bot:
+                corr_actv = corr_actv[:, :, margin:height-margin, margin:width-margin]
+                rule_pred = rule_pred[:, :, margin:height-margin, margin:width-margin]
+                interm_pred = interm_pred[:, :, margin:height-margin, margin:width-margin]   
+                 
+        height, width = main_pred.shape[-2:]    
+        nopred_mask = torch.ones(self.batch_size, height, width)
+        
+        top_nopred, left_nopred, bottom_nopred, right_nopred = padding - (batch_margins.T * s)
+        current_batch_size = len(inputs[0])
+        h_range = torch.arange(height).unsqueeze(-1).expand(height, current_batch_size)
+        w_range = torch.arange(width).unsqueeze(-1).expand(width, current_batch_size)
+        x_mask = torch.logical_and(h_range >= top_nopred, h_range < height - bottom_nopred).T
+        y_mask = torch.logical_and(w_range >= left_nopred, w_range < width - right_nopred).T
+        nopred_mask = ~torch.einsum('bi,bj->bij', (x_mask, y_mask))
+        main_pred[nopred_mask.unsqueeze(1).expand(current_batch_size, main_pred.shape[1], height, width)] = 0 
+        if self.sem_bot:
+            corr_actv[nopred_mask.unsqueeze(1).expand(current_batch_size, corr_actv.shape[1], height, width)] = 0
+            rule_pred[nopred_mask.unsqueeze(1).expand(current_batch_size, rule_pred.shape[1], height, width)] = 0
+            interm_pred[nopred_mask.unsqueeze(1).expand(current_batch_size, interm_pred.shape[1], height, width)] = 0
+                
+        if self.sem_bot:
+            return (main_pred, rule_pred, corr_actv, interm_pred), \
+                    ((seg_loss, valid_px), (seg_bin_loss, valid_bin_px), \
+                        (regr_loss, regr_weights), (corr_loss, valid_corr_px)), nopred_mask
         else:
-            seg_loss = 0
-        return seg_loss, total_valid_px
+            return main_pred, ((seg_loss, valid_px), (seg_bin_loss, valid_bin_px)), nopred_mask        
+                
 
-    def infer(self, seg_criterion = None, seg_criterion_2 = None, regr_criteria = None, correction_penalizer = None, 
-                regr_pts_per_tile = 200):
+    def infer(self, seg_criterion=None, seg_criterion_2=None, regr_criteria=None, correction_penalizer=None, 
+                regr_pts_per_tile = 200, detailed_regr_metrics = False):
         """
         Perform tile by tile inference on a dataset, evaluate and save outputs if needed
 
         Args:
             - criterion (nn.Module): criterion used for training, to be evaluated at validation as well to track 
                     overfitting
+            - regr_pts_per_tile (int): number of random regression values to store per tile (useful for scatterplot)
+            - regr_sse (bool): whether to compute the RMSE of the regression predictions, on top of computing MAE.
+            - regr_r2 (bool): whether to compute the R2 score of the regression predictions
+            
         """
         self.model.eval()
         
@@ -547,56 +512,70 @@ class Inference():
             df = self._select_samples()
             # create virtual mosaics (and set nodata values)
             self._get_vrt_from_df(df)
-        # set the cumulative confusion matrix to 0
-        if self.evaluate:
-            self._reset_cm()       
-            if seg_criterion is not None:
-                seg_losses = [0] * len(df)
-                valid_px_list = [0] * len(df)
-            if seg_criterion_2 is not None:
-                seg_bin_losses = [0] * len(df)
-                valid_px_bin_list = [0] * len(df)
-            if self.sem_bot:
-                pos_error = np.zeros(self.n_interm_targets)
-                neg_error = np.zeros(self.n_interm_targets)
-                n_pos_pix = np.zeros(self.n_interm_targets)
-                n_neg_pix = np.zeros(self.n_interm_targets)
-
-                if regr_criteria is not None:
-                    regr_losses = [[0] * len(df) for _ in range(self.n_interm_targets)]
-                    regr_weights_list = [[0] * len(df) for _ in range(self.n_interm_targets)]
-                if correction_penalizer is not None:
-                    corr_losses = [0] * len(df)
-                    valid_px_corr_list = [0] * len(df)
-
-                regr_pred_pts = [[] for _ in range(self.n_interm_targets)]
-                regr_target_pts = [[] for _ in range(self.n_interm_targets)]
-                
+        
         #create dataset
         ds = InferenceDataset(self.input_vrt_fns, 
+                              template_fn_df = df.iloc[:, 0], # use first column (first input source) as template filename
                               exp_utils=self.exp_utils, 
-                              batch_size = self.batch_size, 
+                              tile_margin = self.tile_margin, 
+                              batch = self.batch_size > 1,
                               target_vrt_fn = self.target_vrt_fn,
                               interm_target_vrt_fn= self.interm_target_vrt_fns,
                               input_nodata_val = self.input_vrt_nodata_val,
                               target_nodata_val = self.target_vrt_nodata_val,
                               interm_target_nodata_val = self.interm_target_vrt_nodata_val)
+        
         dataloader = torch.utils.data.DataLoader(
             ds,
-            batch_size=None, # manual batching to obtain batches with patches from the same image
+            batch_size=self.batch_size, #None, # manual batch of size 1
             num_workers=self.num_workers,
             pin_memory=False,
-            collate_fn = lambda x : x
+            # collate_fn = lambda x : x,
+            worker_init_fn=ds.seed_worker,
+            generator=self.g,
         )
-        # iterate over dataset (tile by tile) 
-        progress_bar = tqdm(zip(dataloader, df.iterrows()), total=len(df))
-        for (batch_data, (target_data, interm_target_data), coords, dims, margins, input_nodata_mask), (tile_idx, fns) in progress_bar:
-            template_fn = fns.iloc[0]
-            tile_num = self.exp_utils.tilenum_extractor[0](template_fn)
-            progress_bar.set_postfix_str('Tiles(s): {}'.format(tile_num))
+        
+        # initialize lists/accumulators
+        if self.evaluate:
+            # set the cumulative confusion matrix to 0
+            self._reset_cm()       
+            if seg_criterion is not None:
+                seg_losses = [0] * len(dataloader)
+                valid_px_list = [0] * len(dataloader)
+            if seg_criterion_2 is not None:
+                seg_bin_losses = [0] * len(dataloader)
+                valid_px_bin_list = [0] * len(dataloader)
+            if self.sem_bot:
+                pos_error = np.zeros(self.n_interm_targets)
+                neg_error = np.zeros(self.n_interm_targets)
+                n_pos_pix = np.zeros(self.n_interm_targets)
+                n_neg_pix = np.zeros(self.n_interm_targets)
+                if detailed_regr_metrics:
+                    sse = np.zeros(self.n_interm_targets) # sum of squared errors
+                    valid_regr_counts = np.zeros(self.n_interm_targets)
+                    sum_regr_targets = np.zeros(self.n_interm_targets)
+                    sum_regr_squared_targets = np.zeros(self.n_interm_targets)
+                else:
+                    sse, valid_regr_counts = None, None
+                    sum_regr_targets, sum_regr_squared_targets = None, None
+                if regr_criteria is not None:
+                    regr_losses = [[0] * len(dataloader) for _ in range(self.n_interm_targets)]
+                    regr_weights_list = [[0] * len(dataloader) for _ in range(self.n_interm_targets)]
+                if correction_penalizer is not None:
+                    corr_losses = [0] * len(dataloader)
+                    valid_px_corr_list = [0] * len(dataloader)
+                regr_pred_pts = [[] for _ in range(self.n_interm_targets)]
+                regr_target_pts = [[] for _ in range(self.n_interm_targets)]
+                
+        progress_bar = tqdm(enumerate(dataloader), total=len(dataloader))
+        for batch_idx, data in progress_bar:
+            batch_data, (target_data, interm_target_data), margins, input_nodata_mask, batch_template_fn = data
+            # template_fn = fns.iloc[0]
+            batch_tile_num = [self.exp_utils.tilenum_extractor[0](fn) for fn in batch_template_fn]
+            progress_bar.set_postfix_str('Tile(s): {}'.format(batch_tile_num))
 
             # compute forward pass and aggregate outputs
-            outputs, losses  = self._infer_sample(batch_data, coords, dims, margins, 
+            outputs, losses, nopred_mask = self._infer_sample(batch_data, margins, 
                                                   seg_criterion=seg_criterion, 
                                                   seg_criterion_2=seg_criterion_2,
                                                   regr_criteria=regr_criteria,
@@ -611,74 +590,73 @@ class Inference():
             # store validation losses
             if self.evaluate:
                 if seg_criterion is not None:
-                    seg_losses[tile_idx] = seg_loss
-                    valid_px_list[tile_idx] = valid_px
+                    seg_losses[batch_idx] = seg_loss
+                    valid_px_list[batch_idx] = valid_px
                 if seg_criterion_2 is not None:
-                    seg_bin_losses[tile_idx] = seg_bin_loss
-                    valid_px_bin_list[tile_idx] = valid_bin_px
+                    seg_bin_losses[batch_idx] = seg_bin_loss
+                    valid_px_bin_list[batch_idx] = valid_bin_px
                 if self.sem_bot:
                     if regr_criteria is not None:
                         for i in range(self.n_interm_targets):
-                            regr_losses[i][tile_idx] = regr_loss[i]
-                            regr_weights_list[i][tile_idx] = regr_weights[i]
+                            regr_losses[i][batch_idx] = regr_loss[i]
+                            regr_weights_list[i][batch_idx] = regr_weights[i]
                     if correction_penalizer is not None:
-                        corr_losses[tile_idx] = corr_loss
-                        valid_px_corr_list[tile_idx] = valid_corr_px
+                        corr_losses[batch_idx] = corr_loss
+                        valid_px_corr_list[batch_idx] = valid_corr_px
 
             # compute hard predictions and update confusion matrix
             output = output.numpy()
+            nodata_mask = np.logical_or(input_nodata_mask.numpy(), nopred_mask.numpy())
             if self.sem_bot:
                 rule_output, corr_output= rule_output.numpy(), corr_output.numpy(), 
-                interm_output = [t.numpy() for t in interm_output]
-                
+                interm_output = interm_output.numpy() 
                 # postprocess the intermediate regression outputs
-                postproc_interm_output = [None] * len(interm_output)
+                postproc_interm_output = [None] * interm_output.shape[1]
                 for i in range(self.n_interm_targets):
                     # scale back to the initial range
-                    interm_output[i] = interm_output[i].squeeze(0)
-                    postproc_interm_output[i] = self.exp_utils.postprocess_regr_predictions(interm_output[i], i)
-                            
+                    postproc_interm_output[i] = self.exp_utils.postprocess_regr_predictions(interm_output[:, i], i)
             else:
                 rule_output = None
                 postproc_interm_output = None
-            output_hard, output_hard_2, output_hard_1, rule_output_hard, regr_output_hard = self._get_decisions(actv=output, 
+                
+            target_data = target_data.numpy()
+            if self.sem_bot:
+                interm_target_data = [t.numpy() for t in interm_target_data]
+            else:
+                interm_target_data = None
+            output_hard, output_hard_2, output_hard_1, rule_output_hard, _ = self._get_decisions(actv=output, 
                                                                                               target_data=target_data, 
                                                                                               rule_actv=rule_output, 
                                                                                               interm_actv=postproc_interm_output, 
-                                                                                              interm_target_data=interm_target_data)
+                                                                                              interm_target_data=interm_target_data,
+                                                                                              nodata_mask=nodata_mask)
             
-            # restore nodata values found in the inputs
-            if np.any(input_nodata_mask):
-                rep_mask = np.repeat(input_nodata_mask[np.newaxis, :, :], output.shape[0], axis = 0)
+            # restore nodata values from inputs + missing predictions
+            if np.any(nodata_mask):
+                rep_mask = np.repeat(nodata_mask[:, np.newaxis, ...], output.shape[1], axis = 1)
                 output[rep_mask] = self.exp_utils.f_out_nodata_val
-                output_hard[input_nodata_mask] = self.exp_utils.i_out_nodata_val
-                if output_hard_1 is not None:
-                    output_hard_1[input_nodata_mask] = self.exp_utils.i_out_nodata_val
-                if output_hard_2 is not None:
-                    output_hard_2[input_nodata_mask] = self.exp_utils.i_out_nodata_val
                 if self.sem_bot:
                     rule_output[rep_mask] = self.exp_utils.f_out_nodata_val
                     corr_output[rep_mask] = self.exp_utils.f_out_nodata_val
                     for i in range(self.n_interm_targets):
-                        postproc_interm_output[i][input_nodata_mask] = self.exp_utils.f_out_nodata_val 
-                        regr_output_hard[i][input_nodata_mask] = self.exp_utils.i_out_nodata_val
+                        postproc_interm_output[i][nodata_mask] = self.exp_utils.f_out_nodata_val 
             if self.save_error_map: 
-                valid_mask = ~input_nodata_mask
+                valid_mask = ~nodata_mask
                 if self.decision == 'f':
                     main_target = target_data
-                    valid_mask *= (main_target != self.target_vrt_nodata_val)# * ~input_nodata_mask
+                    valid_mask *= (main_target != self.target_vrt_nodata_val)
                     seg_error_map = get_seg_error_map(pred=output_hard, 
                                                     target=main_target, 
                                                     valid_mask=valid_mask, 
                                                     n_classes=self.exp_utils.n_classes)
                 else:
                     seg_error_map_1 = get_seg_error_map(pred=output_hard_1, 
-                                                    target=target_data[0], 
-                                                    valid_mask=valid_mask*(target_data[0]!=self.target_vrt_nodata_val), 
+                                                    target=target_data[:, 0], 
+                                                    valid_mask=valid_mask*(target_data[:, 0]!=self.target_vrt_nodata_val), 
                                                     n_classes=self.exp_utils.n_classes_1)
                     seg_error_map_2 = get_seg_error_map(pred=output_hard_2, 
-                                                    target=target_data[1], 
-                                                    valid_mask=valid_mask*(target_data[1]!=self.target_vrt_nodata_val), 
+                                                    target=target_data[:, 1], 
+                                                    valid_mask=valid_mask*(target_data[:, 1]!=self.target_vrt_nodata_val), 
                                                     n_classes=self.exp_utils.n_classes_2)
                     # 0: no error, 1: forest type error, 2: presence of forest error, 3: both errors
                     seg_error_map = (seg_error_map_1>0).astype(np.uint8)
@@ -689,22 +667,26 @@ class Inference():
                 if self.save_error_map or self.evaluate:
                     regr_error_map = [None] * self.n_interm_targets
                     for i in range(self.n_interm_targets):
-                        valid_mask = (interm_target_data[i] != self.interm_target_vrt_nodata_val[i]) * ~input_nodata_mask
+                        valid_mask = (interm_target_data[i] != self.interm_target_vrt_nodata_val[i]) * ~nodata_mask
                         regr_error_map[i] = get_regr_error_map(pred=postproc_interm_output[i], 
                                                     target=interm_target_data[i], 
                                                     valid_mask=valid_mask)
                         if self.evaluate:
                             if self.decision == 'f':
-                                target_data = target_data 
+                                fpa_target_data = target_data # used to indicate presence or absence of forest
                             else:
-                                target_data = target_data[-1] 
-                            pos_err, neg_err, n_pos, n_neg = get_regr_error(regr_error_map[i], 
-                                                                            target_data, 
-                                                                            interm_target_data[i], 
-                                                                            self.interm_target_vrt_nodata_val[i])
+                                fpa_target_data = target_data[:, -1] 
+                            pos_err, neg_err, n_pos, n_neg = get_mae(regr_error_map[i], 
+                                                                            fpa_target_data, 
+                                                                            valid_mask=valid_mask)
                             n_pos_pix[i] += n_pos; n_neg_pix[i] += n_neg
                             pos_error[i] += pos_err; neg_error[i] += neg_err
-
+                            
+                            if detailed_regr_metrics:
+                                sse[i] += np.sum(regr_error_map[i][valid_mask]**2)
+                                valid_regr_counts[i] += np.sum(valid_mask)
+                                sum_regr_targets[i] += np.sum(interm_target_data[i][valid_mask])
+                                sum_regr_squared_targets[i] += np.sum(interm_target_data[i][valid_mask]**2)
                             # store some of the regression points for a scatter plot
                             idx = np.unravel_index(np.random.choice(postproc_interm_output[i].size, regr_pts_per_tile), postproc_interm_output[i].shape)
                             mask = valid_mask[idx]
@@ -714,87 +696,90 @@ class Inference():
                     regr_error_map = None
 
             # write outputs 
-            if self.save_hard or self.save_soft:   
-                writer = Writer(self.exp_utils, tile_num, template_fn, 
-                                template_scale = self.exp_utils.input_scales[0], 
-                                dest_scale=self.exp_utils.target_scale)
-                # main segmentation output
-                writer.save_seg_result(self.output_dir, 
-                                        save_hard = self.save_hard, output_hard = output_hard, 
-                                        save_soft = self.save_soft, output_soft = output, 
-                                        colormap = self.exp_utils.colormap)
-                if self.binary_map:
-                    # binary forest/non-forest
+            for i in range(len(batch_template_fn)):
+                tile_num = batch_tile_num[i]
+                template_fn = batch_template_fn[i]
+                if self.save_hard or self.save_soft or self.save_corr or self.save_interm:   
+                    writer = Writer(self.exp_utils, tile_num, template_fn, 
+                                    template_scale = self.exp_utils.input_scales[0], 
+                                    dest_scale=self.exp_utils.target_scale)
+                    # main segmentation output
                     writer.save_seg_result(self.output_dir, 
-                                            save_hard = self.save_hard, output_hard = output_hard_2, 
-                                            save_soft = False, output_soft = None, 
-                                            suffix = self.exp_utils.suffix_2, 
-                                            colormap = self.exp_utils.colormap_2)
-                    
-                    if self.decision == 'h':
-                        # forest type
+                                            save_hard = self.save_hard, output_hard = output_hard[i], 
+                                            save_soft = self.save_soft, output_soft = output[i], 
+                                            colormap = self.exp_utils.colormap)
+                    if self.binary_map:
+                        # binary forest/non-forest
                         writer.save_seg_result(self.output_dir, 
-                                                save_hard = self.save_hard, output_hard = output_hard_1, 
+                                                save_hard = self.save_hard, output_hard = output_hard_2[i], 
                                                 save_soft = False, output_soft = None, 
-                                                suffix = self.exp_utils.suffix_1, 
-                                                colormap = self.exp_utils.colormap_1)
-
-                        if self.save_error_map:
+                                                suffix = self.exp_utils.suffix_2, 
+                                                colormap = self.exp_utils.colormap_2)
+                        
+                        if self.decision == 'h':
+                            # forest type
                             writer.save_seg_result(self.output_dir, 
-                                                save_hard = self.save_hard, output_hard = seg_error_map_1, 
-                                                save_soft = False, output_soft = None, 
-                                                suffix = '_error_1', 
-                                                colormap = None)
-                            writer.save_seg_result(self.output_dir, 
-                                                save_hard = self.save_hard, output_hard = seg_error_map_2, 
-                                                save_soft = False, output_soft = None, 
-                                                suffix = '_error_2', 
-                                                colormap = None)
-                if self.save_error_map:
-                    writer.save_seg_result(self.output_dir, 
-                                        save_hard = self.save_hard, output_hard = seg_error_map, 
-                                        save_soft = False, output_soft = None, 
-                                        suffix = '_error',
-                                        colormap = None)
-            
-                if self.sem_bot:
-                    # rule output
-                    writer.save_seg_result(self.output_dir, 
-                                            save_hard = self.save_hard, output_hard = rule_output_hard,
-                                            save_soft = self.save_soft, output_soft = rule_output,
-                                            name_hard = 'rule_predictions', name_soft = 'rule_predictions_soft',
-                                            colormap = self.exp_utils.colormap
-                                            )
-                    # change map (before v.s. after correction)
-                    corr_change = output_hard * self.exp_utils.n_classes + rule_output_hard
-                    corr_change[output_hard == rule_output_hard] = 0
-                    corr_change[input_nodata_mask] = 0
-                    writer.save_seg_result(self.output_dir,
-                                           save_hard = self.save_hard, output_hard = corr_change,
-                                            save_soft = False, output_soft = None,
-                                            name_hard = 'corr_change', name_soft = None,
-                                            colormap = None
-                                            )
-                    # regression outputs
-                    for i in range(self.n_interm_targets):
-                        source = self.exp_utils.interm_target_sources[i]
-                        writer.save_regr_result(self.output_dir, output = postproc_interm_output[i],
-                                                name = 'interm_{}_predictions'.format(source))
-                        if self.save_error_map:
-                            writer.save_regr_result(self.output_dir, output = regr_error_map[i], 
-                                                    name = '{}_error_map'.format(source))
-                    if self.save_soft:
-                        # correction
-                        writer.save_regr_result(self.output_dir, output = corr_output, 
-                                                name = 'corr_activations')
-                        corr_diff = output - rule_output
-                        writer.save_regr_result(self.output_dir, output = corr_diff, 
-                                                name = 'corr_diff')
-            del output
-            del output_hard
-            del output_hard_2
-            del output_hard_1
-            gc.collect()
+                                                    save_hard = self.save_hard, output_hard = output_hard_1[i], 
+                                                    save_soft = False, output_soft = None, 
+                                                    suffix = self.exp_utils.suffix_1, 
+                                                    colormap = self.exp_utils.colormap_1)
+                            # error maps for each task seperately
+                            # if self.save_error_map:
+                            #     writer.save_seg_result(self.output_dir, 
+                            #                         save_hard = self.save_hard, output_hard = seg_error_map_1[i], 
+                            #                         save_soft = False, output_soft = None, 
+                            #                         suffix = '_error_1', 
+                            #                         colormap = None)
+                            #     writer.save_seg_result(self.output_dir, 
+                            #                         save_hard = self.save_hard, output_hard = seg_error_map_2[i], 
+                            #                         save_soft = False, output_soft = None, 
+                            #                         suffix = '_error_2', 
+                            #                         colormap = None)
+                    if self.save_error_map:
+                        writer.save_seg_result(self.output_dir, 
+                                            save_hard = self.save_hard, output_hard = seg_error_map[i], 
+                                            save_soft = False, output_soft = None, 
+                                            suffix = '_error',
+                                            colormap = None)
+                
+                    if self.sem_bot:
+                        # rule output
+                        writer.save_seg_result(self.output_dir, 
+                                                save_hard = self.save_hard, output_hard = rule_output_hard[i],
+                                                save_soft = self.save_soft, output_soft = rule_output[i],
+                                                name_hard = 'rule_predictions', name_soft = 'rule_predictions_soft',
+                                                colormap = self.exp_utils.colormap
+                                                )
+                        # change map (before v.s. after correction)
+                        corr_change = output_hard * self.exp_utils.n_classes + rule_output_hard
+                        corr_change[output_hard == rule_output_hard] = 0
+                        corr_change[nodata_mask] = self.exp_utils.i_out_nodata_val
+                        writer.save_seg_result(self.output_dir,
+                                            save_hard = self.save_hard, output_hard = corr_change[i],
+                                                save_soft = False, output_soft = None,
+                                                name_hard = 'corr_change', name_soft = None,
+                                                colormap = None
+                                                )
+                        # regression outputs
+                        if self.save_interm:
+                            for j in range(self.n_interm_targets):
+                                source = self.exp_utils.interm_target_sources[j]
+                                writer.save_regr_result(self.output_dir, output = postproc_interm_output[j][i],
+                                                        name = 'interm_{}_predictions'.format(source))
+                                if self.save_error_map:
+                                    writer.save_regr_result(self.output_dir, output = regr_error_map[j][i], 
+                                                            name = '{}_error_map'.format(source))
+                        if self.save_corr:
+                            # correction
+                            writer.save_regr_result(self.output_dir, output = corr_output[i], 
+                                                    name = 'corr_activations')
+                            corr_diff = output - rule_output
+                            writer.save_regr_result(self.output_dir, output = corr_diff[i], 
+                                                    name = 'corr_diff')
+                del output
+                del output_hard
+                del output_hard_2
+                del output_hard_1
 
         ###### compute metrics ######
         
@@ -817,10 +802,17 @@ class Inference():
                 pos_mean_regr_error = pos_error / n_pos_pix 
                 neg_mean_regr_error = neg_error / n_neg_pix
                 mean_regr_error = (pos_error + neg_error) / (n_pos_pix + n_neg_pix)
+                    
+                if detailed_regr_metrics:
+                    rmse = np.sqrt(sse/valid_regr_counts)
+                    sstot = sum_regr_squared_targets - sum_regr_targets**2/valid_regr_counts
+                    r2 = 1 - sse / sstot
+                else:
+                    rmse, r2 = None, None
 
                 return self.cum_cms, reports, (seg_loss, seg_bin_loss, regr_loss, corr_loss), \
                     (list(mean_regr_error), list(pos_mean_regr_error), list(neg_mean_regr_error)), \
-                    (regr_pred_pts, regr_target_pts)
+                    (regr_pred_pts, regr_target_pts), (rmse, r2)
             else:
                 return self.cum_cms, reports, (seg_loss, seg_bin_loss)
         else:

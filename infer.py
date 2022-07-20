@@ -6,6 +6,8 @@ from models import Unet, RuleUnet
 import utils
 from utils import ExpUtils
 from copy import deepcopy
+import random
+import numpy as np
 
 ########################### PARAMETERS ########################################
 
@@ -13,54 +15,71 @@ def get_parser():
 
     parser = argparse.ArgumentParser(description='Launch model inference')
     parser.add_argument('--csv_fn', type=str, help='Path to a CSV file containing at least two columns -- "input" or '
-                        '"input_x" (x an integer, for multimodal model), "target", and optionally "interm_target_x", '
-                        'that point to files of the dataset imagery and targets and optionally intermediate concept '
-                        'targets')
+            '"input_x" (x an integer, for multimodal model), "target", and optionally "interm_target_x", that point to '
+            'files of the dataset imagery and targets and optionally intermediate concept targets')
     parser.add_argument('--input_sources', type=str, nargs='+', default=['SI2017', 'ALTI'],
-            choices = ['SI2017', 'ALTI'], help='Source of inputs. Order matters. Example: --input_sources SI2017 ALTI')
-    parser.add_argument('--target_source', type=str, default='TLM5c', choices = ['TLM5c'], help='Source of targets. '
-                        'TLM5c: Rasterized SwissTLM3D forest targets with Open Forest, Closed Forest, Shrub forest and '
-                        'Woodland annotations (5 classes including Non-Forest)')
-    parser.add_argument('--interm_target_sources', type=str, nargs='*', default=[], choices = ['TH', 'TCD1'],
-            help='Sources of supervision for the two intermediate regression tasks. TH: Tree Height. TCD1: Tree Canopy '
-            'Density obtained by averaging a Vegetation Height Model (National Forest Inventory) thresholded at 1m . '
-            'Should be either empty or a length-2 list')
-    parser.add_argument('--model_fn', type=str, required=True, help='Path to the model file.')
-    parser.add_argument('--output_dir', type=str, required = True, help='Directory where the output predictions will be '
-                        'stored.')
-    parser.add_argument('--overwrite', action="store_true", help='Flag for overwriting "output_dir" if that directory '
-                        'already exists.')
-    parser.add_argument('--batch_size', type=int, default=32, help='Batch size to use during inference.')
-    parser.add_argument('--num_workers', type=int, default=0, help='Number of workers to use for data loading.')
-    parser.add_argument('--save_hard', action="store_true", help='Flag that enables saving the "hard" class predictions.')
-    parser.add_argument('--save_soft', action="store_true", help='Flag that enables saving the "soft" class predictions.')
-    parser.add_argument('--save_error_map', action="store_true", help='Flag that enables saving the error maps for '
-                        'intermediate concept regression predictions. Requires intermediate targets to be specified in '
-                        '"csv_fn" file')
+        choices = ['SI2017', 'ALTI'],
+        help='Source of inputs. Order matters. Example: --input_sources SI2017 ALTI')
+    parser.add_argument('--target_source', type=str, nargs='?', default=['TLM4c'],
+        choices = ['TLM3c','TLM4c','TLM5c'],
+        help='Source of targets. TLMxc: SwissTLM3D forest targets with x classes')
+    parser.add_argument('--interm_target_sources', type=str, nargs='*', default=[], 
+        choices = ['TH','VHM', 'TCD1', 'TCD2', 'TCDCopHRL'],
+        help='Sources of supervision for intermediate regression tasks. TCD: Copernicus HRL Tree Canopy Density. '
+                'VHM: Vegetation Height Model (National Forest Inventory).')
+    parser.add_argument('--model_fn', type=str, required=True,
+        help='Path to the model file.')
+    parser.add_argument('--output_dir', type=str, required = True,
+        help='Directory where the output predictions will be stored.')
+    parser.add_argument('--overwrite', action="store_true",
+        help='Flag for overwriting "output_dir" if that directory already exists.')
+    parser.add_argument('--padding', type=int, default=64, help='margin to remove around predictions')
+    parser.add_argument('--batch_size', type=int, default=4, help='Number of full tiles in each batch')
+    parser.add_argument('--num_workers', type=int, default=0,
+        help='Number of workers to use for data loading.')
+    parser.add_argument('--save_hard', action="store_true",
+        help='Flag that enables saving the "hard" class predictions.')
+    parser.add_argument('--save_soft', action="store_true",
+        help='Flag that enables saving the "soft" class predictions.')
+    parser.add_argument('--save_corr', action="store_true",
+        help='Flag that enables saving the correction activations (semantic bottleneck model) as well as an images '
+            'indicating class changes before vs. after correction.')
+    parser.add_argument('--save_interm', action="store_true",
+        help='Flag that enables saving the intermediate predictions (semantic bottleneck model).')
+    parser.add_argument('--save_error_map', action="store_true",
+        help='Flag that enables saving the error maps for intermediate concept regression predictions. Requires'
+            'intermediate targets to be specified in "csv_fn" file')
     parser.add_argument('--evaluate', action='store_true', help='whether to compute metrics on the obtained predictions'
                         '(target must be specified in "csv_fn".')
+    parser.add_argument('--random_seed', type=int, default=0, help='Random seed for random, numpy.random and pytorch.')
     return parser
 
 
 class DebugArgs():
     """Class for setting arguments directly in this python script instead of through a command line"""
     def __init__(self):
-        self.input_sources = ['SI2017', 'ALTI']
+        self.input_sources = ['SI2017', 'ALTI'] #['SI2017'] # 
         self.target_source = 'TLM5c' 
-        self.interm_target_sources = ['TH', 'TCD1'] # [] for black-box model, ['TH', 'TCD1'] for semantic bottleneck model
-        self.batch_size = 16
-        self.num_workers = 2 
+        self.interm_target_sources = [] # ['TH', 'TCD1'] #
+        self.padding = 64
+        self.batch_size = 1 # faster with batch size of 1
+        self.num_workers = 2
         self.save_hard = True
         self.save_soft = False
-        self.save_error_map = False
-        self.overwrite = False
-        set = 'test'
-        self.csv_fn = 'data/csv/SI2017_ALTI_TH_TCD1_TLM5c_{}.csv'.format(set) 
-        exp_name = 'sb_hierarchical_MSElog1em1_MSE_doubling_negatives' # 'bb_hierarchical' #
+        self.save_error_map = True
+        self.save_corr = False
+        self.save_interm = False
+        self.overwrite = True
+        set = 'test_viz' # 'NFIplot_2_3' #'test_viz' #'train' #'test' # 
+        self.csv_fn = 'data/csv/{}_{}_{}.csv'.format('_'.join(self.input_sources + self.interm_target_sources), 
+                                                                self.target_source, set)
+        # self.csv_fn = 'data/csv/{}_{}.csv'.format('_'.join(self.input_sources), set)
+        exp_name = 'bb_flat_seed_0' #'bb_wo_alti' #'bb_wo_alti' 
         self.model_fn = 'output/{}/training/{}_model.pt'.format(exp_name, exp_name)
         self.output_dir = 'output/{}/inference/epoch_19/{}'.format(exp_name, set)
+        self.random_seed = 0
 
-        self.evaluate = True 
+        self.evaluate = False 
 
 
 ###############################################################################
@@ -102,7 +121,11 @@ def infer(args):
     if args.evaluate:
             metrics_fn = os.path.join(output_dir, '{}_metrics.pt'.format(exp_name))
              
-
+    seed = args.random_seed
+    torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    
     ######################### MODEL SETUP #####################################
     
     # check gpu
@@ -115,10 +138,15 @@ def infer(args):
     model_obj = torch.load(model_fn)
     decision = model_obj['model_params']['decision']
     n_input_sources = len(args.input_sources)
+    try:
+        epsilon_rule = model_obj['model_params']['epsilon_rule']
+    except KeyError:
+        epsilon_rule = 1e-3
     exp_utils = ExpUtils(args.input_sources, 
                                args.interm_target_sources, 
                                args.target_source, 
-                               decision=decision)
+                               decision=decision,
+                               epsilon_rule=epsilon_rule)
     
     # Set model architecture
     decoder_channels = (256, 128, 64, 32)
@@ -166,12 +194,16 @@ def infer(args):
     ####################### INFERENCE #########################################
 
 
-    inference = utils.Inference(model, args.csv_fn, exp_utils, output_dir = output_dir, 
-                                        evaluate = args.evaluate, save_hard = args.save_hard, save_soft = args.save_soft, 
-                                        save_error_map = args.save_error_map, batch_size = args.batch_size, 
-                                        num_workers = args.num_workers, device = device, decision = decision)
+    inference = utils.Inference(model, args.csv_fn, exp_utils, padding=args.padding, tile_margin=args.padding, 
+                                batch_size=args.batch_size, 
+                                output_dir=output_dir, evaluate=args.evaluate, 
+                                save_hard=args.save_hard, save_soft=args.save_soft, 
+                                save_error_map = args.save_error_map, save_corr=args.save_corr, 
+                                save_interm=args.save_interm,
+                                num_workers=args.num_workers, device=device, decision=decision,
+                                random_seed=seed)
 
-    result = inference.infer()
+    result = inference.infer(detailed_regr_metrics=True)
 
     ######################### EVALUATION ######################################
     
@@ -191,12 +223,14 @@ def infer(args):
                 'val_cms': cumulative_cm
             }    
             if exp_utils.sem_bot:
-                _, val_regr_error, regr_pts = other_outputs
+                _, val_regr_error, regr_pts, (rmse, r2) = other_outputs 
                 val_regr_error, val_pos_regr_error, val_neg_regr_error = val_regr_error
                 d['val_regression_error'] = val_regr_error
                 d['val_pos_regression_error'] = val_pos_regr_error
                 d['val_neg_regression_error'] = val_neg_regr_error
                 d['val_regression_prediction_points'], d['val_regression_target_points'] = regr_pts
+                d['val_regression_rmse'] = rmse
+                d['val_regression_r2'] = r2
             with open(metrics_fn, 'wb') as f:
                 torch.save(d, f)
 
@@ -204,7 +238,7 @@ def infer(args):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        args = DebugArgs() # enables to run the script through IDE debugger without arguments
+        args = DebugArgs() # enables to run the script without arguments
     else:
         parser = get_parser()
         args = parser.parse_args()

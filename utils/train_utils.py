@@ -8,7 +8,8 @@ from utils.ExpUtils import F_NODATA_VAL, I_NODATA_VAL
 
 
 def fit(model, device, dataloader, optimizer, n_batches, seg_criterion, seg_criterion_2, regr_criteria, 
-                correction_penalizer = None, lambda_bin = 1.0, lambda_sem = 1.0, lambda_corr = 1.0, regr_only = True):
+                correction_penalizer = None, lambda_bin = 1.0, lambda_sem = 1.0, lambda_corr = 1.0, regr_only = True,
+                weight_bin_loss = False):
     """
     Runs 1 training epoch, with intermediate targets.
     n_batches is used to setup the progress bar only. The actual number of batches is defined by the dataloader.
@@ -63,7 +64,11 @@ def fit(model, device, dataloader, optimizer, n_batches, seg_criterion, seg_crit
                 seg_actv, bin_seg_actv = final_actv[:, :-1], final_actv[:, -1]
                 seg_target, bin_seg_target = target[:, 0], target[:, 1].float()
                 # backpropagate for binary subtask (last channels)
-                bin_seg_loss = seg_criterion_2(bin_seg_actv, bin_seg_target)
+                if weight_bin_loss:
+                    bin_seg_loss = seg_criterion_2(bin_seg_actv, bin_seg_target, 
+                                                   torch.clamp((seg_target+1) * bin_seg_target, min=None, max=255))
+                else:
+                    bin_seg_loss = seg_criterion_2(bin_seg_actv, bin_seg_target)
                 total_loss = total_loss + (1 - lambda_sem) * lambda_bin * bin_seg_loss 
             else: # only 1 task
                 seg_actv = final_actv
@@ -75,30 +80,36 @@ def fit(model, device, dataloader, optimizer, n_batches, seg_criterion, seg_crit
         # backward pass
         total_loss.backward()
         optimizer.step()
-
-        # store current losses
-        if regr_criteria is not None:
-            regr_losses.append([l.item() for l in regr_loss])   
-        if not regr_only:
-            losses.append(seg_loss.item())
-            if seg_criterion_2 is not None:
-                binary_losses.append(bin_seg_loss.item())
-            if correction_penalizer is not None:
-                correction_penalties.append(correction_pen.item())
-        
+                    
         running_loss += total_loss.item() 
         # print running loss
         if batch_idx % dump_period == dump_period - 1: 
             # this is an approximation because each patch has a different number of valid pixels
             progress_bar.set_postfix(loss=running_loss/dump_period)
             running_loss = 0.0
+            
+        # store current losses
+        if regr_criteria is not None:
+            regr_losses.append([l.item() for l in regr_loss])  
+            del regr_loss 
+            del correction_actv, interm_actv
+        if not regr_only:
+            losses.append(seg_loss.item())
+            del seg_loss
+            if seg_criterion_2 is not None:
+                binary_losses.append(bin_seg_loss.item())
+                del bin_seg_loss
+            if correction_penalizer is not None:
+                correction_penalties.append(correction_pen.item())
+                del correction_pen
+        del final_actv
 
     # average losses over the epoch
     avg_regr_loss = NaN if regr_criteria is None else np.mean(regr_losses, axis=0)
     avg_loss = NaN if regr_only else np.mean(losses, axis = 0)
     avg_binary_loss = NaN if (seg_criterion_2 is None or regr_only) else np.mean(binary_losses)
     avg_correction_penalty = NaN if (correction_penalizer is None or regr_only) else np.mean(correction_penalties)
-
+    
     return avg_loss, avg_binary_loss, avg_regr_loss, avg_correction_penalty
 
 def loss_mean(px_error, weights):
@@ -120,11 +131,9 @@ def loss_root_mean(px_error, weights, eps = 1e-10):
     return l, total_weights 
 
 class WeightedRegressionLoss(nn.Module, ABC):
-    def __init__(self, mean, std, slope=1.0, ignore_val=F_NODATA_VAL, return_weights=False):
+    def __init__(self, slope=0.0, ignore_val=F_NODATA_VAL, return_weights=False):
         super().__init__()
         self.ignore_val = ignore_val
-        self.mean = mean
-        self.std = std
         self.slope = slope
         self.return_weights = return_weights
         self.reduction = loss_mean
@@ -180,24 +189,20 @@ class WeightedRMSElog(WeightedMSElog):
         self.eps = 1e-3
         super().__init__(*args, **kwargs)
         self.reduction = loss_root_mean
-                
-class CrossEntropyLossWithCount(nn.CrossEntropyLoss):
-    def __init__(self, ignore_index=I_NODATA_VAL, weight=None):
-        super().__init__(ignore_index=ignore_index, weight=weight)
-        
-    @property
-    def ignore_val(self):
-        return self.ignore_index
     
-    @ignore_val.setter
-    def ignore_val(self, val):
-        self.ignore_index = val
+class WeightedBCEWithLogitsLoss(nn.BCEWithLogitsLoss):
+    """Binary Cross Entropy loss using class-specific weights from a lower class hierarchy level"""
+    def __init__(self, refined_weight=None):
+        super().__init__(reduction='none')
+        # weights in the refined class set (must use a different attribute name than in BCEWithLogitsLoss class)
+        self.refined_weight = refined_weight
         
-    def forward(self, pred, target):
-        loss = super().forward(pred, target)
-        mask = pred != self.ignore_index
-        count = torch.sum(mask.long())
-        return loss, count
+    def forward(self, pred, target_coarse, target_refined):
+        px_loss = super().forward(pred, target_coarse)
+        weights = self.refined_weight[target_refined.long()]
+        loss = torch.sum(weights * px_loss) / torch.sum(weights)
+        return loss
+        
     
         
 

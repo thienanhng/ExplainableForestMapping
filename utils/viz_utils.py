@@ -8,7 +8,7 @@ from sklearn.metrics import ConfusionMatrixDisplay
 from itertools import product
 from utils.ExpUtils import THRESHOLDS
 
-REGR_COLORS = ['#0c2461', '#e58e26']#['yellowgreen', 'mediumseagreen']
+REGR_COLORS = ['#0c2461', '#e58e26']
 RED = '#eb2f06'
 
 def show_training_losses(fn, sb = False, hierarchical = False):
@@ -303,58 +303,75 @@ def display_norm_cm(cm, class_names = ['NF', 'OF', 'CF'], figsize=3, xlabel="Pre
     count = cm.sum(axis=0, keepdims=True)
     count[count == 0] = np.nan
     precision_cm = cm / count * 100
-    plot_cm(precision_cm, class_names, values_format=values_format, ax=ax1, xlabel=xlabel, ylabel=ylabel)
+    plot_cm(precision_cm, precision_cm, class_names, values_format=values_format, ax=ax1, xlabel=xlabel, ylabel=ylabel)
+    iou_per_class = np.empty((cm.shape[0],))
+    for i in range(cm.shape[0]):
+        iou_per_class[i] = cm[i, i] / (np.sum(cm[i, :]) + np.sum(cm[:, i]) - cm[i, i])
+        print('IoU {}: {}'.format(class_names[i], iou_per_class[i]))
+    mIoU = np.mean(iou_per_class)
+    print('mIoU: {}'.format(mIoU))
     # Recall
     count = cm.sum(axis=1, keepdims=True)
     count[count == 0] = np.nan
     recall_cm = cm / count * 100
-    plot_cm(recall_cm, class_names, values_format=values_format, ax=ax2, xlabel=xlabel, ylabel=ylabel)
+    plot_cm(recall_cm, recall_cm, class_names, values_format=values_format, ax=ax2, xlabel=xlabel, ylabel=ylabel)
     # Fully normalized
     count = cm.sum(keepdims=True)
     count[count == 0] = np.nan
     norm_cm = cm / count * 100
-    plot_cm(norm_cm, class_names, values_format=values_format, ax=ax3, xlabel=xlabel, ylabel=ylabel)
+    plot_cm(norm_cm, precision_cm, class_names, values_format=values_format, ax=ax3, xlabel=xlabel, ylabel=ylabel)
     
 def display_count_cm(cm, class_names = ['NF', 'OF', 'CF'], figsize=(3,2.5), xlabel="Predicted label", ylabel="Target label"):
     """Display unnormalized confusion matrix (with sample counts)"""
+    iou_per_class = np.empty((cm.shape[0],))
+    for i in range(cm.shape[0]):
+        iou_per_class[i] = cm[i, i] / (np.sum(cm[i, :]) + np.sum(cm[:, i]) - cm[i, i])
+        print('IoU {}: {}'.format(class_names[i], iou_per_class[i]))
+    mIoU = np.mean(iou_per_class)
+    print('mIoU: {}'.format(mIoU))
+    count = cm.sum(axis=0, keepdims=True).astype(np.float64) # float needed to assign NaNs
+    count[count == 0] = np.nan
+    precision_cm = cm / count * 100
     fig = plt.figure(figsize=figsize)
     ax = fig.add_subplot(111)
-    plot_cm(cm, class_names, values_format='.0f', ax=ax, xlabel=xlabel, ylabel=ylabel)
+    plot_cm(cm, precision_cm, class_names, values_format='.0f', ax=ax, xlabel=xlabel, ylabel=ylabel)
 
-def plot_cm(cm, class_names, include_values=True, cmap="Blues", values_format='.1f', ax=None, 
+def plot_cm(cm_val, cm_color, class_names, include_values=True, cmap="Blues", values_format='.1f', ax=None, 
             xticks_rotation='vertical', colorbar=False, xlabel="Predicted label", ylabel="Target label"):
     """
     Plot a confusion matrix.
     Adapted from sklearn.metrics.ConfusionMatrixDisplay.plot(), to obtain a fix colormap range
+    - cm_val: confusion matrix values to display
+    - cm_color: matrix values defining the colors (for example, precision matrix)
     """
     if ax is None:
         fig, ax = plt.subplots()
     else:
         fig = ax.figure
-    CMDisplay = ConfusionMatrixDisplay(confusion_matrix=(cm), display_labels=class_names)
-    cm = CMDisplay.confusion_matrix
-    n_classes = cm.shape[0]
-    CMDisplay.im_ = ax.imshow(cm, interpolation="nearest", cmap=cmap, norm=colors.PowerNorm(gamma=0.4, vmin=0, vmax=100))
+    CMDisplay = ConfusionMatrixDisplay(confusion_matrix=(cm_color), display_labels=class_names)
+    # cm = CMDisplay.confusion_matrix
+    n_classes = cm_val.shape[0]
+    CMDisplay.im_ = ax.imshow(cm_color, interpolation="nearest", cmap=cmap)
     CMDisplay.text_ = None
     cmap_min, cmap_max = CMDisplay.im_.cmap(0), CMDisplay.im_.cmap(1.0)
 
     if include_values:
-        CMDisplay.text_ = np.empty_like(cm, dtype=object)
+        CMDisplay.text_ = np.empty_like(cm_val, dtype=object)
 
         # print text with appropriate color depending on background
-        thresh = 50 
+        thresh = 70 
 
         for i, j in product(range(n_classes), range(n_classes)):
-            color = cmap_max if cm[i, j] < thresh else cmap_min
+            color = cmap_max if cm_color[i, j] < thresh else cmap_min # color of the numbers
 
             if values_format is None:
-                text_cm = format(cm[i, j], ".2g")
-                if cm.dtype.kind != "f":
-                    text_d = format(cm[i, j], "d")
+                text_cm = format(cm_val[i, j], ".2g")
+                if cm_val.dtype.kind != "f":
+                    text_d = format(cm_val[i, j], "d")
                     if len(text_d) < len(text_cm):
                         text_cm = text_d
             else:
-                text_cm = format(cm[i, j], values_format)
+                text_cm = format(cm_val[i, j], values_format)
 
             CMDisplay.text_[i, j] = ax.text(
                 j, i, text_cm, ha="center", va="center", color=color
@@ -377,11 +394,11 @@ def plot_cm(cm, class_names, include_values=True, cmap="Blues", values_format='.
 
     ax.set_ylim((n_classes - 0.5, -0.5))
     plt.setp(ax.get_xticklabels(), rotation=xticks_rotation)
+    
 
-
-def show_model_metrics(fn, epoch=-1, class_names = None, sb = False, s = 0.1, scale = [['log', 'linear'], ['linear']],
-                        val_max = [[60, 5], [100]], show_scatter = True, show_2Dhist = False, show_table = True, 
-                        show_cm = True, cm_xlabel='Prediction', cm_ylabel='Target'):
+def show_model_metrics(fn, epoch=-1, class_names=None, sb=False, s=0.1, scale=[['log', 'linear'], ['linear']],
+                        val_max=[[60, 10], [100]], val_min=[[0.5e-1, 0], [0]], show_scatter=True, show_2Dhist=False, show_table=True, 
+                        show_cm=True, cm_xlabel='Prediction', cm_ylabel='Target', digits=3):
     """
     Prints validation metrics + confusion matrices of the model for a given epoch
     Setting epoch to None indicates that the file contains metrics for one given epoch (as opposed to consecutive 
@@ -422,27 +439,32 @@ def show_model_metrics(fn, epoch=-1, class_names = None, sb = False, s = 0.1, sc
             for i in range(len(interm_concepts)):
                 if len(regr_pred_pts[i]) > 0:
                     print('Plotting {} points'.format(len(regr_pred_pts[i])))
-                    for scl, ymax in zip(scale[i], val_max[i]):
+                    for scl, ymin, ymax in zip(scale[i], val_min[i], val_max[i]):
                         
                         if ymax is None:
                             ymax = np.max(np.concatenate(regr_target_pts[i], regr_pred_pts[i]))
+                        if ymin is None:
+                            ymax = np.min(np.concatenate(regr_target_pts[i], regr_pred_pts[i]))
                         if isinstance(regr_target_pts[i], list):
                             regr_target_pts[i] = regr_target_pts[i][0]
                         if isinstance(regr_pred_pts[i], list):
                             regr_pred_pts[i] = regr_pred_pts[i][0]
-                        mask = (regr_target_pts[i] <= ymax) * (regr_pred_pts[i] <= ymax)
+                        mask = (regr_target_pts[i] <= ymax) \
+                                * (regr_pred_pts[i] <= ymax) \
+                                * (regr_target_pts[i] >= ymin) \
+                                * (regr_pred_pts[i] >= ymin)
                         print(interm_concepts[i])
                         plt.figure(figsize=figsize)
                         plt.scatter(regr_target_pts[i][mask], regr_pred_pts[i][mask], s=s, c=REGR_COLORS[i], alpha=0.02)
-                        id = np.linspace(0, ymax, num=1000)
+                        id = np.linspace(ymin, ymax, num=1000)
                         plt.plot(id, id, color='k', label="1:1 line")
                         try:
                             thresholds = d['thresholds'][i]
                         except KeyError:
                             thresholds = THRESHOLDS[interm_concepts[i]]
-                        plt.vlines(thresholds, ymin=0, ymax=ymax, colors=[RED]*len(thresholds), linestyle='dashed', 
+                        plt.vlines(thresholds, ymin=ymin, ymax=ymax, colors=[RED]*len(thresholds), linestyle='dashed', 
                                    label="rule thresholds")
-                        plt.hlines(thresholds, xmin=0, xmax=ymax, colors=[RED]*len(thresholds), linestyle='dashed')
+                        plt.hlines(thresholds, xmin=ymin, xmax=ymax, colors=[RED]*len(thresholds), linestyle='dashed')
                         plt.xlabel('Target')
                         plt.ylabel('Prediction')
                         plt.xscale(scl)
@@ -452,6 +474,18 @@ def show_model_metrics(fn, epoch=-1, class_names = None, sb = False, s = 0.1, sc
                         plt.legend(bbox_to_anchor=(0.5, 1.1), loc='center')
                         plt.tight_layout()
                         plt.show()
+                        
+        # print regression metrics
+        try:
+            rmse = d['val_regression_rmse']
+            print('Regression RMSE: {}'.format(rmse))
+        except KeyError:
+            pass
+        try:
+            r2 = d['val_regression_r2']
+            print('Regression R2 score: {}'.format(r2))
+        except KeyError:
+            pass
 
     # Print validation metrics (as a table)
     if show_table or show_cm:
@@ -466,9 +500,9 @@ def show_model_metrics(fn, epoch=-1, class_names = None, sb = False, s = 0.1, sc
                         key = r
                         print(key)
                         r = report[key]
-                    print_report(r, digits=2)
+                    print_report(r, digits=digits)
             else:
-                print_report(report, digits=2)
+                print_report(report, digits=digits)
 
     # Print confusion matrices
     if show_cm:
@@ -490,8 +524,8 @@ def show_model_metrics(fn, epoch=-1, class_names = None, sb = False, s = 0.1, sc
                 display_norm_cm(m, class_names, xlabel=cm_xlabel, ylabel=cm_ylabel)
         else:
             display_norm_cm(cm, class_names, xlabel=cm_xlabel, ylabel=cm_ylabel)
-
-
+            
+            
 def get_main_metrics(fn, idx = 0):
     """
     Reads loss, mean accury and f-1 scores from an experiment. 
