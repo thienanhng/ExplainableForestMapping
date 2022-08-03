@@ -319,7 +319,7 @@ def display_norm_cm(cm, class_names = ['NF', 'OF', 'CF'], figsize=3, xlabel="Pre
     count = cm.sum(keepdims=True)
     count[count == 0] = np.nan
     norm_cm = cm / count * 100
-    plot_cm(norm_cm, precision_cm, class_names, values_format=values_format, ax=ax3, xlabel=xlabel, ylabel=ylabel)
+    plot_cm(norm_cm, recall_cm, class_names, values_format=values_format, ax=ax3, xlabel=xlabel, ylabel=ylabel)
     
 def display_count_cm(cm, class_names = ['NF', 'OF', 'CF'], figsize=(3,2.5), xlabel="Predicted label", ylabel="Target label"):
     """Display unnormalized confusion matrix (with sample counts)"""
@@ -329,12 +329,12 @@ def display_count_cm(cm, class_names = ['NF', 'OF', 'CF'], figsize=(3,2.5), xlab
         print('IoU {}: {}'.format(class_names[i], iou_per_class[i]))
     mIoU = np.mean(iou_per_class)
     print('mIoU: {}'.format(mIoU))
-    count = cm.sum(axis=0, keepdims=True).astype(np.float64) # float needed to assign NaNs
+    count = cm.sum(axis=1, keepdims=True).astype(np.float64) # float needed to assign NaNs
     count[count == 0] = np.nan
-    precision_cm = cm / count * 100
+    recall_cm = cm / count * 100
     fig = plt.figure(figsize=figsize)
     ax = fig.add_subplot(111)
-    plot_cm(cm, precision_cm, class_names, values_format='.0f', ax=ax, xlabel=xlabel, ylabel=ylabel)
+    plot_cm(cm, recall_cm, class_names, values_format='.0f', ax=ax, xlabel=xlabel, ylabel=ylabel)
 
 def plot_cm(cm_val, cm_color, class_names, include_values=True, cmap="Blues", values_format='.1f', ax=None, 
             xticks_rotation='vertical', colorbar=False, xlabel="Predicted label", ylabel="Target label"):
@@ -351,6 +351,7 @@ def plot_cm(cm_val, cm_color, class_names, include_values=True, cmap="Blues", va
     CMDisplay = ConfusionMatrixDisplay(confusion_matrix=(cm_color), display_labels=class_names)
     # cm = CMDisplay.confusion_matrix
     n_classes = cm_val.shape[0]
+    cm_color = np.nan_to_num(cm_color)
     CMDisplay.im_ = ax.imshow(cm_color, interpolation="nearest", cmap=cmap)
     CMDisplay.text_ = None
     cmap_min, cmap_max = CMDisplay.im_.cmap(0), CMDisplay.im_.cmap(1.0)
@@ -359,7 +360,7 @@ def plot_cm(cm_val, cm_color, class_names, include_values=True, cmap="Blues", va
         CMDisplay.text_ = np.empty_like(cm_val, dtype=object)
 
         # print text with appropriate color depending on background
-        thresh = 70 
+        thresh = 0.7 * np.max(cm_color) #[~np.isnan(cm_color)]) #70
 
         for i, j in product(range(n_classes), range(n_classes)):
             color = cmap_max if cm_color[i, j] < thresh else cmap_min # color of the numbers
