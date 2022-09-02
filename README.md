@@ -1,6 +1,8 @@
 Implementation of an explainable deep learning method for forest mapping, using aerial imagery (SwissImage) and a digital elevation model 
 (SwissALTI3D) as inputs. 
 
+Additional instructions and model weights will be provided shortly.
+
 ## Links to data information/download:
 - input data:
   - SwissImage data: https://www.swisstopo.admin.ch/en/geodata/images/ortho/swissimage10.html#download 
