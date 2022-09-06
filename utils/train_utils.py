@@ -4,7 +4,7 @@ from numpy.core.numeric import NaN
 from tqdm import tqdm
 import torch
 import torch.nn as nn
-from utils.ExpUtils import F_NODATA_VAL, I_NODATA_VAL
+from utils.ExpUtils import F_NODATA_VAL
 
 
 def fit(model, device, dataloader, optimizer, n_batches, seg_criterion, seg_criterion_2, regr_criteria, 
@@ -113,7 +113,7 @@ def fit(model, device, dataloader, optimizer, n_batches, seg_criterion, seg_crit
     return avg_loss, avg_binary_loss, avg_regr_loss, avg_correction_penalty
 
 def loss_mean(px_error, weights):
-    total_weights = torch.sum(weights) #[mask])
+    total_weights = torch.sum(weights) 
     if total_weights > 0:
         l = torch.sum(weights * px_error) / total_weights
     else:
@@ -122,7 +122,7 @@ def loss_mean(px_error, weights):
 
 def loss_root_mean(px_error, weights, eps = 1e-10):
     """the output total_weights doesnt exactly reflect the actual weighting because of the sqrt"""
-    total_weights = torch.sum(weights) #[mask])
+    total_weights = torch.sum(weights)
     if total_weights > 0:
         total_weights = torch.sqrt(total_weights + eps)
         l = torch.sqrt(torch.sum(weights * px_error) + eps) / total_weights
@@ -191,7 +191,15 @@ class WeightedRMSElog(WeightedMSElog):
         self.reduction = loss_root_mean
     
 class WeightedBCEWithLogitsLoss(nn.BCEWithLogitsLoss):
-    """Binary Cross Entropy loss using class-specific weights from a lower class hierarchy level"""
+    """Binary Cross Entropy loss using class-specific weights from a lower class hierarchy level
+    Example:
+             /   \  
+             A    B    coarse level
+            /\    /\
+           C  D  E  F  refined/lower level
+    If WeightedBCEWithLogitsLoss is used to train task A v.s. B, for each pixel, the loss will be weighted using weights
+    depending whether the pixel belong to class C, D, E of F, rather than whether the pixels belongs to class A or B.
+    """
     def __init__(self, refined_weight=None):
         super().__init__(reduction='none')
         # weights in the refined class set (must use a different attribute name than in BCEWithLogitsLoss class)

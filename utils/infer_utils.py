@@ -39,6 +39,7 @@ class Inference():
             - evaluate (bool): whether to evaluate the predictions
             - save_hard (bool): whether to write hard predictions into image files
             - save_soft (bool): whether to write soft predictions into image files
+            - save_error_map (bool): whether to write an error map between hard predictions and targets into image files
             - save_corr (bool): whether to write correction activations (semantic bottleneck model) and a change map 
                 (before vs. after correction) into image files
             - save_interm (bool): whether to write intermediate predictions (semantic bottleneck model) into image files
@@ -283,7 +284,7 @@ class Inference():
             # compute hard predictions
             output_hard_1 = self.exp_utils.decision_func(output_1) # ForestType
             output_hard_2 = self.exp_utils.decision_func_2(output_2) # forest presence/absence
-            output_hard = (output_hard_1 + 1) * output_hard_2 # apply decision tree -> TLM4c
+            output_hard = (output_hard_1 + 1) * output_hard_2 # apply decision tree -> 4 classes
             if rule_actv is not None:
                 output_hard_rule_1 = self.exp_utils.rule_decision_func(output_rule_1)
                 output_hard_rule_2 = self.exp_utils.rule_decision_func_2(output_rule_2)
@@ -292,12 +293,12 @@ class Inference():
                 output_hard_rule = None
             # define the targets
             if self.evaluate or self.save_error_map:
-                target = target_data[:, -1] # TLM4c
+                target = target_data[:, -1] # 4 classes
                 target_1 = target_data[:, 0] # ForestType
                 if output_hard_2 is not None:
                     target_2 = target_data[:, 1] # forest presence/absence
                 if output_hard_rule is not None:
-                    rule_target = target_data[:, -1] # TLM4c
+                    rule_target = target_data[:, -1] # 4 classes
         if self.sem_bot:
             output_hard_regr = [None] * len(interm_actv)
             for i, t in enumerate(self.exp_utils.unprocessed_thresholds):
@@ -327,7 +328,6 @@ class Inference():
             self.cum_cms['seg']+= my_confusion_matrix(target, 
                                                      output_hard,
                                                      self.exp_utils.n_classes)
-            
             # other tasks / output
             if self.binary_map:
                 self.cum_cms['seg_2'] += my_confusion_matrix(
@@ -367,7 +367,7 @@ class Inference():
                         # transform continuous target into categories
                         target_cat = np.sum(np.ravel(interm_target_data[i])[mask] >= rep_thresh, axis = 0)
                         self.cum_cms['regr_{}'.format(i)] += my_confusion_matrix(
-                                                                            target_cat, #.numpy()),
+                                                                            target_cat, 
                                                                             np.ravel(output_hard_regr[i])[mask], 
                                                                             len(self.exp_utils.thresholds[i]) + 1)
 
@@ -500,10 +500,11 @@ class Inference():
         Args:
             - criterion (nn.Module): criterion used for training, to be evaluated at validation as well to track 
                     overfitting
+            - criterion_2 (nn.Module): criterion used for training the binary task (in case of hierarchical tasks structure)
+            - regr_criteria (nn.Module): critera used for training the regression tasks
+            - correction_penalizer (nn.Module): criteria used to penalize the correctiona activations during training
             - regr_pts_per_tile (int): number of random regression values to store per tile (useful for scatterplot)
-            - regr_sse (bool): whether to compute the RMSE of the regression predictions, on top of computing MAE.
-            - regr_r2 (bool): whether to compute the R2 score of the regression predictions
-            
+            - detialed_regr_metrics (bool): whether to compute R2 and RMSE scores for the regression tasks
         """
         self.model.eval()
         
@@ -723,18 +724,6 @@ class Inference():
                                                     save_soft = False, output_soft = None, 
                                                     suffix = self.exp_utils.suffix_1, 
                                                     colormap = self.exp_utils.colormap_1)
-                            # error maps for each task seperately
-                            # if self.save_error_map:
-                            #     writer.save_seg_result(self.output_dir, 
-                            #                         save_hard = self.save_hard, output_hard = seg_error_map_1[i], 
-                            #                         save_soft = False, output_soft = None, 
-                            #                         suffix = '_error_1', 
-                            #                         colormap = None)
-                            #     writer.save_seg_result(self.output_dir, 
-                            #                         save_hard = self.save_hard, output_hard = seg_error_map_2[i], 
-                            #                         save_soft = False, output_soft = None, 
-                            #                         suffix = '_error_2', 
-                            #                         colormap = None)
                     if self.save_error_map:
                         writer.save_seg_result(self.output_dir, 
                                             save_hard = self.save_hard, output_hard = seg_error_map[i], 

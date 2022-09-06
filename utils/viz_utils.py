@@ -340,16 +340,15 @@ def plot_cm(cm_val, cm_color, class_names, include_values=True, cmap="Blues", va
             xticks_rotation='vertical', colorbar=False, xlabel="Predicted label", ylabel="Target label"):
     """
     Plot a confusion matrix.
-    Adapted from sklearn.metrics.ConfusionMatrixDisplay.plot(), to obtain a fix colormap range
+    Adapted from sklearn.metrics.ConfusionMatrixDisplay.plot(), to obtain a fixed colormap range
     - cm_val: confusion matrix values to display
-    - cm_color: matrix values defining the colors (for example, precision matrix)
+    - cm_color: matrix values defining the colors (for example, recall matrix)
     """
     if ax is None:
         fig, ax = plt.subplots()
     else:
         fig = ax.figure
     CMDisplay = ConfusionMatrixDisplay(confusion_matrix=(cm_color), display_labels=class_names)
-    # cm = CMDisplay.confusion_matrix
     n_classes = cm_val.shape[0]
     cm_color = np.nan_to_num(cm_color)
     CMDisplay.im_ = ax.imshow(cm_color, interpolation="nearest", cmap=cmap)
@@ -359,8 +358,8 @@ def plot_cm(cm_val, cm_color, class_names, include_values=True, cmap="Blues", va
     if include_values:
         CMDisplay.text_ = np.empty_like(cm_val, dtype=object)
 
-        # print text with appropriate color depending on background
-        thresh = 0.7 * np.max(cm_color) #[~np.isnan(cm_color)]) #70
+        # print text with visible color depending on background
+        thresh = 0.7 * np.max(cm_color) 
 
         for i, j in product(range(n_classes), range(n_classes)):
             color = cmap_max if cm_color[i, j] < thresh else cmap_min # color of the numbers
@@ -398,8 +397,8 @@ def plot_cm(cm_val, cm_color, class_names, include_values=True, cmap="Blues", va
     
 
 def show_model_metrics(fn, epoch=-1, class_names=None, sb=False, s=0.1, scale=[['log', 'linear'], ['linear']],
-                        val_max=[[60, 10], [100]], val_min=[[0.5e-1, 0], [0]], show_scatter=True, show_2Dhist=False, show_table=True, 
-                        show_cm=True, cm_xlabel='Prediction', cm_ylabel='Target', digits=3):
+                        val_max=[[60, 10], [100]], val_min=[[0.5e-1, 0], [0]], show_scatter=True, show_2Dhist=False, 
+                        show_table=True, show_cm=True, cm_xlabel='Prediction', cm_ylabel='Target', digits=3):
     """
     Prints validation metrics + confusion matrices of the model for a given epoch
     Setting epoch to None indicates that the file contains metrics for one given epoch (as opposed to consecutive 
@@ -527,37 +526,3 @@ def show_model_metrics(fn, epoch=-1, class_names=None, sb=False, s=0.1, scale=[[
             display_norm_cm(cm, class_names, xlabel=cm_xlabel, ylabel=cm_ylabel)
             
             
-def get_main_metrics(fn, idx = 0):
-    """
-    Reads loss, mean accury and f-1 scores from an experiment. 
-    idx specifies which output to use if the experiment has multiple outputs.
-    """
-    d = torch.load(fn, map_location='cpu')
-    losses = d['train_losses']
-    val_reports = d['val_reports']
-    val_reports = [report[idx] if isinstance(report, (tuple, list)) else report for report in val_reports]
-    mean_acc = [report['mean']['accuracy'] for report in val_reports]
-    mean_f1 = [report['mean']['f1-score'] for report in val_reports]
-    val_epochs = d['val_epochs']
-    return val_epochs, losses, mean_acc, mean_f1
-
-def compare_2_experiments(fn1, fn2, name1, name2):
-    """OUTDATED. Plots loss, mean accuracy and f-1 score from 2 experiments on the same plot"""
-
-    val_epochs_1, losses_1, mean_acc_1, mean_f1_1 = get_main_metrics(fn1)
-    val_epochs_2, losses_2, mean_acc_2, mean_f1_2 = get_main_metrics(fn2)
-    marker1 = 'o'
-    marker2 = 'x'
-    plt.figure()
-    plt.plot(losses_1, 'b-' + marker1, label='loss ' + name1)
-    plt.plot(losses_2, 'b-' + marker2, label='loss ' + name2)
-    plt.plot(val_epochs_1, mean_f1_1, 'g-' + marker1, label='mean f-1 ' + name1)
-    plt.plot(val_epochs_2, mean_f1_2, 'g-' + marker2, label='mean f-1 ' + name2)
-    plt.xlabel('epoch')
-    plt.xticks(range(0,val_epochs_1[-1],5))
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    plt.minorticks_on()
-    plt.grid(b = True, which = 'major')
-    plt.grid(b = True, which = 'minor', alpha = 0.4)
-    plt.ylim(ymin=0)
-    plt.show()
