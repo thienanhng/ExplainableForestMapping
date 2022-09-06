@@ -11,7 +11,6 @@ set=test
 
 python infer.py \
         --input_sources SI2017 ALTI \
-        --target_source TLM5c \
         --batch_size 1 \
         --padding 64 \
         --save_hard \

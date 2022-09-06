@@ -4,7 +4,6 @@ experiment=bb_weighted_bin_loss_seed_0
 
 python train.py \
         --input_sources SI2017 ALTI \
-        --target_source TLM5c \
         --train_csv_fn data/csv/SI2017_ALTI_TLM5c_train_with_counts.csv \
         --val_csv_fn data/csv/SI2017_ALTI_TLM5c_val.csv \
         --batch_size 16 \

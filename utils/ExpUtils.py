@@ -8,43 +8,30 @@ from copy import copy
 # means and standard deviations
 MEANS = {'SI2017': [ 98.01336916, 106.46617234, 93.43728537], 
         'ALTI' : 1878.01851825,
-        'VHM': 3.90032556,
         'TH': 4.95295663,
-        'TCDCopHRL': 21.18478328,
-        'TCD1': 29.91515737,
-        'TCD2': 26.84415381}
-MEANS['TCD'] =  MEANS['TCDCopHRL'] # for backward compatibility
+        'TCD1': 29.91515737}
 
 STDS = {'SI2017': [54.22041366, 52.69225063, 46.55903685], 
         'ALTI' : 1434.79671951,
-        'VHM': 7.52012624,
         'TH': 8.5075463,
-        'TCDCopHRL': 33.00766675,
-        'TCD1': 37.9657575,
-        'TCD2': 37.10486429}
-STDS['TCD'] =  STDS['TCDCopHRL'] # for backward compatibility
+        'TCD1': 37.9657575}
 
 # nodata values
 I_NODATA_VAL = 255 # nodata value for integer arrays/rasters
 F_NODATA_VAL = -1 # nodata value for float arrays/rasters
 
 NODATA_VAL = {'SI2017': 0,
-                'TLM3c' : None,
                 'TLM4c' : None,
                 'TLM5c' : None,
                 'ALTI' : None,
-                'VHM' : -3.4028234663852886e+38,
                 'TH' : -3.4028234663852886e+38,
-                'TCDCopHRL': 240.0,
                 'TCD1' : -1,
-                'TCD2' : -1,
                 'hard_predictions': I_NODATA_VAL,
                 'soft_predictions': np.finfo(np.float32).max}
 
 # operators to use to check nodata
 NODATA_CHECK_OPERATOR = {'SI2017': ['all', 'all'], # operators used to skip a training patch
                         'ALTI': ['all', 'all'],
-                        'TLM3c': 'any',
                         'TLM4c': 'any',
                         'TLM5c': 'any',
                         'TH' : 'all',
@@ -53,20 +40,20 @@ NODATA_CHECK_OPERATOR = {'SI2017': ['all', 'all'], # operators used to skip a tr
 GET_OPERATOR = {'any': np.any, 'all': np.all}
 
 # relative resolution of the datasources
-RELATIVE_RESOLUTION = {'SI2017': 4, 'ALTI': 2, 'TLM3c': 1, 'TLM4c': 1, 'TLM5c': 1, 'VHM': 1, 'TH': 1,'TCD': 1}
+RELATIVE_RESOLUTION = {'SI2017': 4, 'ALTI': 2, 'TLM4c': 1, 'TLM5c': 1, 'TH': 1,'TCD': 1}
 
 # number of channels
 CHANNELS = {'SI2017': 3, 'ALTI' : 1}
 
 # class names
-CLASS_NAMES = {'ForestPresenceAbsence' : ['NF', 'F'], 'TLM3c': ['NF', 'OF', 'CF'], 'TLM4c': ['NF', 'OF', 'CF', 'SF'], 
+CLASS_NAMES = {'ForestPresenceAbsence' : ['NF', 'F'], 'TLM4c': ['NF', 'OF', 'CF', 'SF'], 
                 'ForestType': ['OF', 'CF', 'SF'], 'TH': None, 'TCD': None}
 
 # number of classes
-N_CLASSES = {'ForestPresenceAbsence' : 2, 'TLM3c': 3, 'TLM4c': 4, 'ForestType': 3, 'TH': None, 'TCD': None}
+N_CLASSES = {'ForestPresenceAbsence' : 2, 'TLM4c': 4, 'ForestType': 3, 'TH': None, 'TCD': None}
 
 # thresholds for intermediate variables
-THRESHOLDS = {'TH': [1.0, 3.0], 'TCD': [20.0, 60.0], 'VHM': [20.0, 60.0]}
+THRESHOLDS = {'TH': [1.0, 3.0], 'TCD': [20.0, 60.0]}
 
 
 #                             TCD   <20       [20, 60)    >= 60]    TH
@@ -91,7 +78,7 @@ prob_encoding = lambda eps: {
 
 # TLM translation for sub-tasks
 nodata_mapping = np.full(251, fill_value = I_NODATA_VAL)
-#                                                                                   NF            OF  CF  SF  Gehoelzflaeche
+#                                                                                   NF            OF  CF  SF  Gehoelzflaeche/Woodland
 TARGET_CONVERSION_TABLE = { 'ForestPresenceAbsence':    np.concatenate((np.array([  0,            1,  1,  1,  1]), 
                                                             nodata_mapping)),
                             'TLM4c':                    np.concatenate((np.array([  0,            1,  2,  3,  I_NODATA_VAL]),
@@ -103,11 +90,6 @@ TARGET_CONVERSION_TABLE = { 'ForestPresenceAbsence':    np.concatenate((np.array
 COLORMAP = {'ForestPresenceAbsence': {  
                         0: (0, 0, 0, 0),
                         1: (255, 255, 255, 255),
-                        },
-            'TLM3c': { 
-                        0: (0, 0, 0, 0),
-                        1: (21, 180, 0, 255),
-                        2: (25, 90, 0, 255)
                         },
             'TLM4c': { 
                         0: (0, 0, 0, 0),
@@ -129,17 +111,7 @@ CLASS_FREQUENCIES = {
     'ForestPresenceAbsence' : { # non-forest, forest (the latter including open forest, closed forest, shrub forest and forest patches)
         'all': {'train': np.array([0.7332189312030073, 0.2667810687969927])},
         'positives': {'train': np.array([0.6044306120401336, 0.3955693879598663])}
-                },
-    'TLM3c': { # non-forest, open forest, closed forest (WRONG, forest patches considererd as non-forest)
-        'all': {    'train': np.array([0.7534807958646614, 0.016324748120300762, 0.23019445601503774]),
-                    'val': np.array([0.7035771146711639, 0.0186117234401349, 0.2778111618887016]),
-                    'test': np.array([0.7641926017830614, 0.015225793462109956, 0.22058160475482902])
-                },
-        'positives' : {'train': np.array([0.6042690374170179, 0.02621146771273391, 0.3695194948702477]),
-                    'val': np.array([0.5733500048543688, 0.02679510194174758, 0.3998548932038842]),
-                    'test': np.array([0.6230919406175778, 0.024336940617577196, 0.3525711187648456])
-                    }
-                },    
+                },  
     'TLM4c': { # non-forest, open forest, closed forest, shrub forest 
         'all': {
             'train': np.array([0.7345804185679481, 0.016352612423765258, 0.23061658770687501, 0.018450381301411623]),
@@ -152,8 +124,6 @@ CLASS_FREQUENCIES = {
                 # (frequencies for the last class are not used)
             'all': {
             'train': np.array([0.7332189312030076, 0.016322304135338337, 0.23018915789473723, 0.01841618496240605, 0.0018534218045112767]),
-            'val' : np.array([0.6846235885328839, 0.018615264755480594, 0.27776981450252985, 0.017019370994940983, 0.001971961214165261]),
-            'test' : np.array([0.7481924457652306, 0.015229600297176828, 0.22057757800891528, 0.014307291233283791, 0.0016930846953937583])
                 },
         'positives' : {
             'train': np.array([0.6044306120401334, 0.024205046822742493, 0.34131316610925294, 0.027303667781493884, 0.0027475072463768136]),
@@ -172,14 +142,10 @@ CLASS_FREQUENCIES = {
 default_tilenum_extractor = lambda x: os.path.splitext('_'.join(os.path.basename(x).split('_')[-2:]))[0]
 TILENUM_EXTRACTOR = {'SI2017': lambda x: '_'.join(os.path.basename(x).split('_')[2:4]),
                     'ALTI': default_tilenum_extractor,
-                    'TLM3c': default_tilenum_extractor,
                     'TLM4c': default_tilenum_extractor,
                     'TLM5c': default_tilenum_extractor,
-                    'VHM': default_tilenum_extractor,
                     'TH': default_tilenum_extractor,
-                    'TCDCopHRL': default_tilenum_extractor,
-                    'TCD1': default_tilenum_extractor,
-                    'TCD2': default_tilenum_extractor}
+                    'TCD1': default_tilenum_extractor}
 
 IGNORE_INDEX = I_NODATA_VAL
 IGNORE_FLOAT = F_NODATA_VAL 
@@ -192,18 +158,18 @@ class ExpUtils:
     experiment
     """
 
-    def __init__(self, input_sources, interm_target_sources = [], target_source = None, decision = 'f', epsilon_rule=1e-3):
+    def __init__(self, input_sources, interm_target_sources = [], decision = 'f', epsilon_rule=1e-3):
         """
         Args:
             - inputs_sources (list of str): input sources
             - interm_target_sources (list of str): sources to use as target for intermediate concept regression task
-            - target_source (str): main classification target source
             - decision (str): decision type, 'f' for all decisions at the same level (e.g. non-forest, open forest, 
                 closed forest, shrub forest), 'h' for a 2-step decision (forest/non-forest then forest type)
             - epsilon_rule (float): stabilizing factor to compute hard-coded log-probabilities of the rule module
         """
 
         # Get methods and parameters corresponding to input and target sources
+        target_source = 'TLM5c'
         self.n_input_sources = len(input_sources)
         self.n_interm_targets = len(interm_target_sources)
         self.sem_bot = self.n_interm_targets > 0 # sem_bot = semantic bottleneck
@@ -259,22 +225,19 @@ class ExpUtils:
         # setup output(s)
         self.class_names = {}
         self.class_freq = {}
-        if target_source == 'TLM5c': 
-            # assume we don't want to predict the class forest patch / gehoelzflaeche
-            # (only use it for nodata information for example)
-            target = 'TLM4c' 
-            # specify paraneters for the second decision tree layer as well (forest type)
-            if decision == 'h':
-                target_1 = 'ForestType'
-                self.n_classes_1 =  N_CLASSES[target_1]
-                self.class_names['seg_1'] = CLASS_NAMES[target_1]
-                if self.sem_bot:
-                    self.class_names['seg_rule_1'] = CLASS_NAMES[target_1]
-                self.class_freq['seg_1'] = CLASS_FREQUENCIES[target_1]
-                self.colormap_1 = COLORMAP[target_1]
-                self.suffix_1 = '_ForestType'
-        else:
-            target = target_source
+        # assume we don't want to predict the class forest patch / gehoelzflaeche
+        # (only use it for nodata information for example)
+        target = 'TLM4c' 
+        # specify paraneters for the second decision tree layer as well (forest type)
+        if decision == 'h':
+            target_1 = 'ForestType'
+            self.n_classes_1 =  N_CLASSES[target_1]
+            self.class_names['seg_1'] = CLASS_NAMES[target_1]
+            if self.sem_bot:
+                self.class_names['seg_rule_1'] = CLASS_NAMES[target_1]
+            self.class_freq['seg_1'] = CLASS_FREQUENCIES[target_1]
+            self.colormap_1 = COLORMAP[target_1]
+            self.suffix_1 = '_ForestType'
         self.n_classes = N_CLASSES[target] 
         self.class_freq['seg'] = CLASS_FREQUENCIES[target]
         self.colormap = COLORMAP[target]
@@ -303,23 +266,21 @@ class ExpUtils:
             self.decision_func_2 = None
             self.target_recombination = None
 
-        if target_source == 'TLM5c' and decision == 'h':
+        if decision == 'h':
             # +1 for the binary task
             self.output_channels = self.n_classes_1 + 1 
         else:
             self.output_channels = self.n_classes 
 
         # target preprocessing for training
-        if target_source == 'TLM5c':
-            if decision == 'h':
-                self.preprocess_training_target = self.preprocess_training_hierarchical_target
-            else: 
-                self.preprocess_training_target = lambda x : torch.from_numpy(TARGET_CONVERSION_TABLE['TLM4c'][x])
-        else:
-            self.preprocess_training_target = lambda x : torch.from_numpy(x).long()
+        if decision == 'h':
+            self.preprocess_training_target = self.preprocess_training_hierarchical_target
+        else: 
+            self.preprocess_training_target = lambda x : torch.from_numpy(TARGET_CONVERSION_TABLE['TLM4c'][x])
+
 
         # target preprocessing for inference
-        if target_source == 'TLM5c' and decision == 'h':
+        if decision == 'h':
             self.preprocess_inference_target = self.preprocess_inference_hierarchical_target
         else: # same processing function for training and inference
             self.preprocess_inference_target = lambda x : x

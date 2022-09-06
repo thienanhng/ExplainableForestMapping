@@ -20,13 +20,11 @@ def get_parser():
     parser.add_argument('--input_sources', type=str, nargs='+', default=['SI2017', 'ALTI'],
         choices = ['SI2017', 'ALTI'],
         help='Source of inputs. Order matters. Example: --input_sources SI2017 ALTI')
-    parser.add_argument('--target_source', type=str, nargs='?', default=['TLM4c'],
-        choices = ['TLM3c','TLM4c','TLM5c'],
-        help='Source of targets. TLMxc: SwissTLM3D forest targets with x classes')
     parser.add_argument('--interm_target_sources', type=str, nargs='*', default=[], 
-        choices = ['TH','VHM', 'TCD1', 'TCD2', 'TCDCopHRL'],
-        help='Sources of supervision for intermediate regression tasks. TCD: Copernicus HRL Tree Canopy Density. '
-                'VHM: Vegetation Height Model (National Forest Inventory).')
+        choices = ['TH', 'TCD1'],
+        help='Sources of supervision for intermediate regression tasks. TH: tree height from the VHM NFI (Vegetation '
+        'Height Model, Swiss National Forest Inventory). TCD1: Tree Canopy Density obtained by thresholding the VHM NFI'
+        ' at 1m and spatial averaging.')
     parser.add_argument('--model_fn', type=str, required=True,
         help='Path to the model file.')
     parser.add_argument('--output_dir', type=str, required = True,
@@ -59,7 +57,6 @@ class DebugArgs():
     """Class for setting arguments directly in this python script instead of through a command line"""
     def __init__(self):
         self.input_sources = ['SI2017', 'ALTI'] #['SI2017'] # 
-        self.target_source = 'TLM5c' 
         self.interm_target_sources = [] # ['TH', 'TCD1'] #
         self.padding = 64
         self.batch_size = 1 # faster with batch size of 1
@@ -70,11 +67,10 @@ class DebugArgs():
         self.save_corr = False
         self.save_interm = False
         self.overwrite = True
-        set = 'test_viz' # 'NFIplot_2_3' #'test_viz' #'train' #'test' # 
-        self.csv_fn = 'data/csv/{}_{}_{}.csv'.format('_'.join(self.input_sources + self.interm_target_sources), 
-                                                                self.target_source, set)
-        # self.csv_fn = 'data/csv/{}_{}.csv'.format('_'.join(self.input_sources), set)
-        exp_name = 'bb_flat_seed_0' #'bb_wo_alti' #'bb_wo_alti' 
+        set = 'test' 
+        self.csv_fn = 'data/csv/{}_TLM5c_{}.csv'.format('_'.join(self.input_sources + self.interm_target_sources), set)
+        # self.csv_fn = 'data/csv/{}_{}.csv'.format('_'.join(self.input_sources), set) # for inference without evaluation
+        exp_name = 'bb_flat_seed_0' #'bb_wo_alti'
         self.model_fn = 'output/{}/training/{}_model.pt'.format(exp_name, exp_name)
         self.output_dir = 'output/{}/inference/epoch_19/{}'.format(exp_name, set)
         self.random_seed = 0
@@ -144,7 +140,6 @@ def infer(args):
         epsilon_rule = 1e-3
     exp_utils = ExpUtils(args.input_sources, 
                                args.interm_target_sources, 
-                               args.target_source, 
                                decision=decision,
                                epsilon_rule=epsilon_rule)
     

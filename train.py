@@ -20,17 +20,14 @@ from utils.train_utils import WeightedBCEWithLogitsLoss
 def get_parser():
     parser = argparse.ArgumentParser(description='Launch model training')
     parser.add_argument('--input_sources', type=str, nargs='*', default=['SI2017', 'ALTI'],
-            choices = ['SI2017', 'ALTI'], \
-            help='Source of inputs. Order matters.'\
+        choices = ['SI2017', 'ALTI'], \
+        help='Source of inputs. Order matters.'\
                 'Example: --input_sources SI2017 ALTI')
-    parser.add_argument('--target_source', type=str, default='TLM5c',
-            choices = ['TLM3c','TLM4c', 'TLM5c'], \
-            help='Source of targets. TLMxc: SwissTLM3D forest targets with x classes')
     parser.add_argument('--interm_target_sources', type=str, nargs='*', default=[],
-            choices = ['VHM', 'TH', 'TCDCopHRL', 'TCD1', 'TCD2'], \
-            help='Sources of supervision for the two intermediate regression tasks. TCDCopHRL: Copernicus HRL Tree Canopy Density. '
-                'VHM: Vegetation Height Model (National Forest Inventory). Should be either an empty list or a length-2 '
-                'list')
+        choices = ['TH', 'TCD1'], \
+        help='Sources of supervision for intermediate regression tasks. TH: tree height from the VHM NFI (Vegetation '
+        'Height Model, Swiss National Forest Inventory). TCD1: Tree Canopy Density obtained by thresholding the VHM NFI'
+        ' at 1m and spatial averaging.')
     parser.add_argument('--train_csv_fn', type=str, help='Csv file listing the input and target files to use for training')
     parser.add_argument('--val_csv_fn', type=str, help='Csv file listing the input and target files to use for validation')
     parser.add_argument('--output_dir', type = str, help='Directory where to store models and metrics. '
@@ -103,12 +100,9 @@ class DebugArgs():
     def __init__(self):
         self.debug = True
         self.input_sources = ['SI2017', 'ALTI'] # ['SI2017'] #
-        self.target_source = 'TLM5c'
         self.interm_target_sources = [] #['TH', 'TCD1'] # 
-        self.train_csv_fn = 'data/csv/{}_{}_train_with_counts.csv'.format('_'.join(self.input_sources + self.interm_target_sources), 
-                                                                                    self.target_source)
-        self.val_csv_fn = 'data/csv/{}_{}_val.csv'.format('_'.join(self.input_sources + self.interm_target_sources), 
-                                                                    self.target_source)
+        self.train_csv_fn = 'data/csv/{}_TLM5c_train_with_counts.csv'.format('_'.join(self.input_sources + self.interm_target_sources))
+        self.val_csv_fn = 'data/csv/{}_TLM5C_val.csv'.format('_'.join(self.input_sources + self.interm_target_sources))
         self.batch_size = 16 
         self.inference_batch_size = 1
         self.patch_size = 128
@@ -132,10 +126,9 @@ class DebugArgs():
         self.skip_validation = False
         self.undersample_validation = 1
         self.resume_training = False
-        self.starting_model_fn = 'output/debug/training/debug_model_epoch_1.pt'
-        self.starting_metrics_fn = 'output/debug/training/debug_metrics_epoch_1.pt'
-        # self.output_dir = 'output/my_sb'
-        self.output_dir = 'output/debug'
+        self.starting_model_fn = 'output/my_model/training/my_model_model_epoch_1.pt'
+        self.starting_metrics_fn = 'output/my_model/training/my_model_metrics_epoch_1.pt'
+        self.output_dir = 'output/my_model'
         self.no_user_input = True
         self.random_seed = 0
 
@@ -143,9 +136,6 @@ class DebugArgs():
 ########################################################################################################################
 
 def train(args):
-    
-    # for debugging
-    # torch.autograd.detect_anomaly()
     
     #################### ARGUMENT CHECKING ####################################
 
@@ -232,7 +222,6 @@ def train(args):
             
     exp_utils = ExpUtils(args.input_sources, 
                          args.interm_target_sources, 
-                         args.target_source, 
                          decision = args.decision,
                          epsilon_rule=args.epsilon_rule)
     
@@ -306,9 +295,6 @@ def train(args):
             device = torch.device("cuda")
     else:
         raise RuntimeError("CUDA is not available")
-    
-    # for debugging
-    # device = 'cpu'
 
     print(args.__dict__)
     

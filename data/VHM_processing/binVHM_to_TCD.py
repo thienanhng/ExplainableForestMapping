@@ -108,7 +108,11 @@ with rasterio.open(mosaic_fn, 'r') as f_mosaic:
             im_out = f.conv2d(im_bin.unsqueeze(0).unsqueeze(0), kernel)/s*100
             im_out = im_out.squeeze(0).squeeze(0)
             # pad with nodata where the margin was too small
-            im_out = torch.nn.functional.pad(im_out, (radius-left_margin, radius-right_margin, radius-top_margin, radius-bottom_margin), mode = 'constant', value = nodata)
+            im_out = torch.nn.functional.pad(
+                                    im_out, 
+                                    (radius-left_margin, radius-right_margin, radius-top_margin, radius-bottom_margin), 
+                                    mode = 'constant', 
+                                    value = nodata)
             # replace all values polluted by nans by nodata value
             im_out[torch.isnan(im_out)] = nodata
             # write the process tile

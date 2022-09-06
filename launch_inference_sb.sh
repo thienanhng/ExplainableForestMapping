@@ -9,7 +9,6 @@ experiment=sb_seed_0
 set=test_with_context
 python infer.py \
         --input_sources SI2017 ALTI \
-        --target_source TLM5c \
         --interm_target_sources TH TCD1 \
         --batch_size 1 \
         --padding 64 \

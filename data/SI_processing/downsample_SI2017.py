@@ -1,5 +1,5 @@
 """ 
-Script to downsample SwissImge imagery
+Script to downsample SwissImage imagery
 """
 
 import os
@@ -11,10 +11,10 @@ from rasterio import Affine
 
 project_dir = os.path.dirname(os.path.dirname(__file__))
 data_dir = os.path.join(os.path.dirname(project_dir), 'Data')
-orig_im_dir = '/media/tanguyen/DATA/2017'
+orig_im_dir = os.path.join(data_dir, 'SwissImage/2017_10cm')
 new_im_dir = os.path.join(data_dir, 'SwissImage/2017_25cm')
 csv_fn = os.path.join(project_dir, 'data/csv/SI2017_train.csv')
-resample_factor = 2.5
+resample_factor = 2.5 # 10 cm to 25 cm
 
 with open(csv_fn, 'r') as f_csv:
     csv_reader = reader(f_csv)

@@ -4,10 +4,6 @@ def initialize_decoder(module):
     for m in module.modules():
 
         if isinstance(m, nn.Conv2d):
-            # Pytorch Resnet implementation uses "fan_out"
-            # (https://github.com/pytorch/vision/blob/master/torchvision/models/resnet.py)
-            # segmentation_models_pytorch uses "fan_in"
-            # (https://github.com/qubvel/segmentation_models.pytorch)
             nn.init.kaiming_uniform_(m.weight, mode="fan_out", nonlinearity="relu")
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
