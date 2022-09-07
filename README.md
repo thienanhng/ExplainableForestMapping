@@ -20,17 +20,17 @@ The goal is to use aerial imagery (SwissImage) and a digital elevation model (DE
 
 The baseline model is a *black-box* model (U-net with ResNet-18 encoder) which simply outputs a segmentation map.
 
-<img width="600" alt="baseline_model_flowchart" src="https://user-images.githubusercontent.com/74596540/188879045-2d3f2ba7-b6d2-4780-bcd3-ed65d0e16777.png">
+<img width="600" alt="baseline_model_flowchart" src="doc/baseline_model_flowchart.png">
 
 The proposed explainable method quantifies two intermediate variables, tree height (TH) and tree canopy density (TCD), and combines these intermediate predictions using logical rules derived from the class definitions (*rule module*), to obtain a rule-based segmentation map. The model also outputs *correction activations* which are combined with the rule-based predictions (*correction module*) to obtain the final predictions. 
 
-<img width="600" alt="sb_model_flowchart" src="https://user-images.githubusercontent.com/74596540/188879233-5a9ba1f0-2658-40ba-8f94-a046f59eca89.png">
+<img width="600" alt="sb_model_flowchart" src="doc/sb_model_flowchart.png">
 
 ## Data information/download:
 
 The lists of tiles used in the training, validation and test sets are specified in the csv files in folder [data/csv](data/csv) (naming convention <source_1>\_<source_2>\_...\_\<set>.csv). The training, validation and test set spatial repartition is the following:
 
-<img width="600" alt="aoi_w_splits_w_legend" src="https://user-images.githubusercontent.com/74596540/188885021-eb64ce92-25f3-44a3-b798-8158bc36d350.png">
+<img width="600" alt="aoi_w_splits_w_legend" src="doc/aoi_w_splits_w_legend.png">
 
 The data can be downloaded using the following links:
 - input data:
