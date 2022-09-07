@@ -1,13 +1,47 @@
-Implementation of an explainable deep learning method for forest mapping, using aerial imagery (SwissImage) and a digital elevation model 
-(SwissALTI3D) as inputs. The method is described in https://doi.org/10.1016/j.rse.2022.113217.
+# Forest mapping with explainable deep learning
 
-Additional instructions and model weights will be provided shortly.
+Code for [Nguyen T.-A., Kellenberger B., Tuia D. (2022), *Mapping forest in the Swiss Alps treeline ecotone with explainable deep learning*](https://doi.org/10.1016/j.rse.2022.113217)
 
-## Links to data information/download:
+
+```bibtex
+@article{Nguyen2022,
+title = {Mapping forest in the Swiss Alps treeline ecotone with explainable deep learning},
+journal = {Remote Sensing of Environment},
+volume = {281},
+pages = {113217},
+year = {2022},
+issn = {0034-4257},
+doi = {https://doi.org/10.1016/j.rse.2022.113217},
+url = {https://www.sciencedirect.com/science/article/pii/S0034425722003248},
+author = {Thiên-Anh Nguyen and Benjamin Kellenberger and Devis Tuia}
+```
+
+The goal is to use aerial imagery (SwissImage) and a digital elevation model (DEM, SwissALTI3D) as inputs, and generate a segmentation map with 4 classes: open forest (OF), closed forest (CF), shrub forest (SF), non-forest (NF). 
+
+The baseline model is a *black-box* model (U-net with ResNet-18 encoder) which simply outputs a segmentation map.
+
+<img width="600" alt="baseline_model_flowchart" src="https://user-images.githubusercontent.com/74596540/188879045-2d3f2ba7-b6d2-4780-bcd3-ed65d0e16777.png">
+
+The proposed explainable method quantifies two intermediate variables, tree height (TH) and tree canopy density (TCD), and combines these intermediate predictions using logical rules derived from the class definitions (*rule module*), to obtain a rule-based segmentation map. The model also outputs *correction activations* which are combined with the rule-based predictions (*correction module*) to obtain the final predictions. 
+
+<img width="600" alt="sb_model_flowchart" src="https://user-images.githubusercontent.com/74596540/188879233-5a9ba1f0-2658-40ba-8f94-a046f59eca89.png">
+
+## Data information/download:
+
+The lists of tiles used in the training, validation and test sets are specified in the csv files in `data/csv`. The training, validation and test set spatial repartition is the following:
+
+<img width="600" alt="aoi_w_splits_w_legend" src="https://user-images.githubusercontent.com/74596540/188885021-eb64ce92-25f3-44a3-b798-8158bc36d350.png">
+
+The data can be downloaded using the following links:
 - input data:
-  - SwissImage data: https://www.swisstopo.admin.ch/en/geodata/images/ortho/swissimage10.html#download 
+  - SwissImage data: https://www.swisstopo.admin.ch/en/geodata/images/ortho/swissimage10.html#download. We downsampled the images a resolution of 25cm using `SI_processing/downsample_SI2017.py`
   - SwissALTI3D data: https://www.swisstopo.admin.ch/en/geodata/height/alti3d.html#download 
 - target data:
-  - original SwissTLM3D vector data: https://www.swisstopo.admin.ch/en/geodata/landscape/tlm3d.html#download 
-  - original VHM NFI data: https://www.envidat.ch/dataset/vegetation-height-model-nfi 
-  - rasterized forest targets obtained from SwissTLM3D, as well as Tree Height et Tree Canopy Density targets obtained by processing the VHM:  https://drive.google.com/file/d/1zBDuug1I3j_N27uj6FXKR7EniK7ED47o/view?usp=sharing
+  - original data:
+    - SwissTLM3D vector data: https://www.swisstopo.admin.ch/en/geodata/landscape/tlm3d.html#download 
+    - VHM NFI data: https://www.envidat.ch/dataset/vegetation-height-model-nfi 
+  - processed data:
+    - rasterized forest targets obtained from SwissTLM3D and Tree Height et Tree Canopy Density targets obtained by processing the VHM: https://drive.google.com/file/d/1zBDuug1I3j_N27uj6FXKR7EniK7ED47o/view?usp=sharing
+  
+## Warnings
+- the data preprocessing constants (mean and standard deviation values) of the input data are hardcoded in `utils/ExpUtils.py` and were computed on the training set using `data/get_statistics.py`. They should be modified if using a different training set.
