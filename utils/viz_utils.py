@@ -2,6 +2,7 @@
 
 import torch
 import numpy as np
+import pprint
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 from sklearn.metrics import ConfusionMatrixDisplay
@@ -10,6 +11,15 @@ from utils.ExpUtils import THRESHOLDS
 
 REGR_COLORS = ['#0c2461', '#e58e26']
 RED = '#eb2f06'
+TASK_NAMES = {'seg': 'Final task',
+              'seg_1': 'Forest type',
+              'seg_2': 'Forest presence/absence',
+              'seg_rule': 'Final task (rule-based)',
+              'seg_rule_1': 'Forest type (rule-based)',
+              'seg_rule_2': 'Forest presence/absence (rule-based)',
+              'regr_0': 'Tree height',
+              'regr_1': 'Tree Canopy Density'
+              }
 
 def show_training_losses(fn, sb = False, hierarchical = False):
     """
@@ -19,7 +29,8 @@ def show_training_losses(fn, sb = False, hierarchical = False):
     # Read metrics
     d = torch.load(fn, map_location='cpu')
     args = d['args']
-    print(args)
+    print('\n########## Experiment parameters ##########')
+    pprint.pprint(args)
 
     mk = 'o'
     total_color = 'dodgerblue'
@@ -40,6 +51,7 @@ def show_training_losses(fn, sb = False, hierarchical = False):
     val_epochs = d['val_epochs']
 
     # Plot losses
+    print('\n########## Loss curve(s) ##########')
     plt.figure()
     if hierarchical or sb:
         total_losses = d['train_total_losses']
@@ -107,39 +119,12 @@ def show_training_losses(fn, sb = False, hierarchical = False):
         plt.ylim(ymin=-0.05)
         plt.show()
 
-        pos_mk = '^'
-        neg_mk = 'v'
-        plt.figure()
-        val_regr_error = list(zip(*d['val_regression_error']))
-        val_pos_regr_error = list(zip(*d['val_pos_regression_error']))
-        val_neg_regr_error = list(zip(*d['val_neg_regression_error']))
-        for i in range(len(regr_losses)):
-            plt.plot(val_regr_error[i], '--'+mk, 
-                     label='{} error (validation)'.format(interm_concepts[i]), 
-                     color=regr_colors[i], 
-                     fillstyle = 'full')
-            plt.plot(val_pos_regr_error[i], val_ls+pos_mk, 
-                     label='{} error (validation, forest)'.format(interm_concepts[i]), 
-                     color=regr_colors[i], 
-                     fillstyle = val_fs)
-            plt.plot(val_neg_regr_error[i], val_ls+neg_mk, 
-                     label='{} error (validation, non-forest)'.format(interm_concepts[i]), 
-                     color=regr_colors[i], 
-                     fillstyle = val_fs)
-        plt.xlabel('epoch')
-        plt.xticks(range(0,len(losses),5))
-        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        plt.minorticks_on()
-        plt.grid(b = True, which = 'major')
-        plt.grid(b = True, which = 'minor', alpha = 0.4)
-        plt.ylim(ymin=-0.05)
-        plt.show()
         
 def dict_zip(*dicts):
     all_keys = {k for d in dicts for k in d.keys()}
     return {k: [d[k] for d in dicts if k in d] for k in all_keys}
         
-def show_detailed_training_results(fn, sb = False):
+def show_val_results_per_epoch(fn, sb = False):
     """
     Plots class-specific validation mean/overall metrics stored in dictionary "fn" across training 
     epochs
@@ -175,14 +160,18 @@ def show_detailed_training_results(fn, sb = False):
     else:
         val_reports = [val_reports]
     val_epochs = d['val_epochs']
+    print('\n########## Validation results across training ##########')
     for vr in val_reports:
         if isinstance(vr, str): #val_reports is a dictionary and not a tuple/list
-            print(vr)
+            try:
+                print('\n{}\n'.format(TASK_NAMES[vr]))
+            except KeyError:
+                print('\n{}\n'.format(vr))
             vr = val_reports[vr]
         else:
             print(vr)
         classes = list(vr[0].keys())[:-2]
-        print(classes)
+        print('classes: {}'.format(classes))
         #get class colors
         if len(classes) == 4:
             class_colors = ['gray', 'limegreen', 'darkgreen', 'olive']
@@ -260,6 +249,9 @@ def show_detailed_training_results(fn, sb = False):
         fig.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
         fig.tight_layout()
         plt.ylim(ymin=0)
+        plt.xticks(range(0,val_epochs[-1],5))
+        plt.grid(b = True, which = 'major')
+        plt.grid(b = True, which = 'minor', alpha = 0.4)
         plt.show()
 
 def print_report(report, digits=2):
@@ -284,7 +276,7 @@ def print_report(report, digits=2):
     print(report_str)
 
 
-def display_norm_cm(cm, class_names = ['NF', 'OF', 'CF'], figsize=3, xlabel="Prediction", ylabel="Target", norm_title=False): 
+def display_norm_cm(cm, class_names = ['NF', 'OF', 'CF'], figsize=3, xlabel="Prediction", ylabel="Target", norm_title=True): 
     """
     Prints a confusion matrix with 3 different normalizations
         - across columns (precision)
@@ -293,8 +285,7 @@ def display_norm_cm(cm, class_names = ['NF', 'OF', 'CF'], figsize=3, xlabel="Pre
     """
     values_format = '.1f'
     cm = cm.astype(np.float32)
-    _, (ax1, ax2) = plt.subplots(1,2, figsize=(2*figsize + 1, figsize))
-    _, ax3 = plt.subplots(1,1, figsize=(figsize, figsize))
+    _, (ax1, ax2, ax3) = plt.subplots(1,3, figsize=(4*figsize, figsize))
     ax1.set_title('Precision (%)')
     ax2.set_title('Recall (%)')
     if norm_title:
@@ -307,9 +298,9 @@ def display_norm_cm(cm, class_names = ['NF', 'OF', 'CF'], figsize=3, xlabel="Pre
     iou_per_class = np.empty((cm.shape[0],))
     for i in range(cm.shape[0]):
         iou_per_class[i] = cm[i, i] / (np.sum(cm[i, :]) + np.sum(cm[:, i]) - cm[i, i])
-        print('IoU {}: {}'.format(class_names[i], iou_per_class[i]))
+        print('IoU {}: {:.3}'.format(class_names[i], iou_per_class[i]))
     mIoU = np.mean(iou_per_class)
-    print('mIoU: {}'.format(mIoU))
+    print('mIoU: {:.3}'.format(mIoU))
     # Recall
     count = cm.sum(axis=1, keepdims=True)
     count[count == 0] = np.nan
@@ -320,6 +311,8 @@ def display_norm_cm(cm, class_names = ['NF', 'OF', 'CF'], figsize=3, xlabel="Pre
     count[count == 0] = np.nan
     norm_cm = cm / count * 100
     plot_cm(norm_cm, recall_cm, class_names, values_format=values_format, ax=ax3, xlabel=xlabel, ylabel=ylabel)
+    plt.show()
+
     
 def display_count_cm(cm, class_names = ['NF', 'OF', 'CF'], figsize=(3,2.5), xlabel="Predicted label", ylabel="Target label"):
     """Display unnormalized confusion matrix (with sample counts)"""
@@ -396,8 +389,8 @@ def plot_cm(cm_val, cm_color, class_names, include_values=True, cmap="Blues", va
     plt.setp(ax.get_xticklabels(), rotation=xticks_rotation)
     
 
-def show_model_metrics(fn, epoch=-1, class_names=None, sb=False, s=0.1, scale=[['log', 'linear'], ['linear']],
-                        val_max=[[60, 10], [100]], val_min=[[0.5e-1, 0], [0]], show_scatter=True, show_2Dhist=False, 
+def show_inference_metrics(fn, epoch=-1, class_names=None, sb=False, s=0.1, scale=[['log', 'linear'], ['linear']],
+                        val_max=[[60, 10], [100]], val_min=[[0.5e-1, 0], [0]], show_scatter=True,
                         show_table=True, show_cm=True, cm_xlabel='Prediction', cm_ylabel='Target', digits=3):
     """
     Prints validation metrics + confusion matrices of the model for a given epoch
@@ -415,31 +408,16 @@ def show_model_metrics(fn, epoch=-1, class_names=None, sb=False, s=0.1, scale=[[
         if epoch is not None:
             regr_pred_pts = regr_pred_pts[epoch]
             regr_target_pts = regr_target_pts[epoch]
-        if show_2Dhist:
-            edges = [[0, 1, 3, 5, 10, 20, 60], np.arange(0, 101, 10)]
-            lim = [[1e-1, 60], [0, 100]]
-            for i in range(len(interm_concepts)):
-                if len(regr_pred_pts[i]) > 0:
-                    for scl in scale[i]:
-                        plt.figure(figsize=figsize)
-                        counts, _, _ = np.histogram2d(regr_target_pts[i], regr_pred_pts[i], bins=(edges[i], edges[i]))
-                        plt.pcolormesh(edges[i], edges[i], counts.T, norm=colors.LogNorm(vmin=1, vmax=counts.max()))
-                        plt.colorbar()
-                        plt.xscale(scl)
-                        plt.yscale(scl)
-                        plt.xlim(xmin=lim[i][0], xmax=lim[i][1])
-                        plt.ylim(ymin=lim[i][0], ymax=lim[i][1])
-                        plt.xlabel('Target')
-                        plt.ylabel('Prediction')
-                        plt.title('{}'.format(interm_concepts[i]))
-                        plt.tight_layout()
-                        plt.show()
     # Scatter plot for regression tasks
         if show_scatter:
             for i in range(len(interm_concepts)):
                 if len(regr_pred_pts[i]) > 0:
+                    print('\n{}\n'.format(interm_concepts[i]))
                     print('Plotting {} points'.format(len(regr_pred_pts[i])))
-                    for scl, ymin, ymax in zip(scale[i], val_min[i], val_max[i]):
+                    _, axes = plt.subplots(1,len(scale[i]), figsize=((len(scale[i]))*figsize[0], figsize[1]))
+                    if len(scale[i])==1:
+                        axes = [axes]
+                    for scl, ymin, ymax, ax in zip(scale[i], val_min[i], val_max[i], axes):
                         
                         if ymax is None:
                             ymax = np.max(np.concatenate(regr_target_pts[i], regr_pred_pts[i]))
@@ -453,27 +431,26 @@ def show_model_metrics(fn, epoch=-1, class_names=None, sb=False, s=0.1, scale=[[
                                 * (regr_pred_pts[i] <= ymax) \
                                 * (regr_target_pts[i] >= ymin) \
                                 * (regr_pred_pts[i] >= ymin)
-                        print(interm_concepts[i])
-                        plt.figure(figsize=figsize)
-                        plt.scatter(regr_target_pts[i][mask], regr_pred_pts[i][mask], s=s, c=REGR_COLORS[i], alpha=0.02)
+                        
+                        ax.scatter(regr_target_pts[i][mask], regr_pred_pts[i][mask], s=s, c=REGR_COLORS[i], alpha=0.02)
                         id = np.linspace(ymin, ymax, num=1000)
-                        plt.plot(id, id, color='k', label="1:1 line")
+                        ax.plot(id, id, color='k', label="1:1 line")
                         try:
                             thresholds = d['thresholds'][i]
                         except KeyError:
                             thresholds = THRESHOLDS[interm_concepts[i]]
-                        plt.vlines(thresholds, ymin=ymin, ymax=ymax, colors=[RED]*len(thresholds), linestyle='dashed', 
+                        ax.vlines(thresholds, ymin=ymin, ymax=ymax, colors=[RED]*len(thresholds), linestyle='dashed', 
                                    label="rule thresholds")
-                        plt.hlines(thresholds, xmin=ymin, xmax=ymax, colors=[RED]*len(thresholds), linestyle='dashed')
-                        plt.xlabel('Target')
-                        plt.ylabel('Prediction')
-                        plt.xscale(scl)
-                        plt.yscale(scl)
-                        plt.grid(b=True, which='major')
-                        plt.grid(b=True, which='minor', alpha=0.4)
-                        plt.legend(bbox_to_anchor=(0.5, 1.1), loc='center')
-                        plt.tight_layout()
-                        plt.show()
+                        ax.hlines(thresholds, xmin=ymin, xmax=ymax, colors=[RED]*len(thresholds), linestyle='dashed')
+                        ax.set_xlabel('Target')
+                        ax.set_ylabel('Prediction')
+                        ax.set_xscale(scl)
+                        ax.set_yscale(scl)
+                        ax.grid(b=True, which='major')
+                        ax.grid(b=True, which='minor', alpha=0.4)
+                        ax.legend(bbox_to_anchor=(0.5, 1.1), loc='center')
+                    plt.tight_layout()
+                    plt.show()
                         
         # print regression metrics
         try:
@@ -498,7 +475,10 @@ def show_model_metrics(fn, epoch=-1, class_names=None, sb=False, s=0.1, scale=[[
                 for r in report:
                     if isinstance(r, str): # cm is a dictionary
                         key = r
-                        print(key)
+                        try:
+                            print('\n{}\n'.format(TASK_NAMES[key]))
+                        except KeyError:
+                            print('\n{}\n'.format(key))
                         r = report[key]
                     print_report(r, digits=digits)
             else:
@@ -513,7 +493,10 @@ def show_model_metrics(fn, epoch=-1, class_names=None, sb=False, s=0.1, scale=[[
             for i, m in enumerate(cm):
                 if isinstance(m, str): # cm is a dictionary
                     key = m
-                    print(key)
+                    try:
+                        print('\n{}\n'.format(TASK_NAMES[key]))
+                    except KeyError:
+                        print('\n{}\n'.format(key))
                     class_names = list(report[key].keys())[:-2]
                     m = cm[key]
                 else:

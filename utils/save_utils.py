@@ -78,5 +78,5 @@ if __name__ == "__main__":
     #                        epoch)
     
     ### Delete model checkpoint to save disk space
-    experiment = 'bb'
+    experiment = 'sb_rulem'
     del_model_checkpoints('output/{}/training/{}_metrics.pt'.format(experiment, experiment))
