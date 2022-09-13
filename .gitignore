@@ -144,5 +144,4 @@ dmypy.json
 log*.txt
 tmp*/
 copy_files.sh
-*metrics.pt
-output/
+*model*.pt

@@ -57,12 +57,26 @@ def truncate_training_file(in_fn, out_fn, trunc_epoch):
 
     with open(out_fn, 'wb') as f:
         torch.save(d_out, f)
+        
+def del_model_checkpoints(fn):
+    """Delete model checkpoints that are automatically saved in the metrics files at training"""
+    d = torch.load(fn, map_location='cpu')
+    del d['model_checkpoints']
+    del d['optimizer_checkpoints']
+    torch.save(d, fn)
 
 if __name__ == "__main__":
-    experiment = 'sb_seed_0'
-    epoch = 4
-    extract_checkpoint('output/{}/training/{}_metrics.pt'.format(experiment, experiment), 
-                       'output/{}/training/{}_model_epoch_{}.pt'.format(experiment, experiment, epoch), epoch)
-    truncate_training_file('output/{}/training/{}_metrics.pt'.format(experiment, experiment),
-                           'output/{}/training/{}_metrics_epoch_{}.pt'.format(experiment, experiment, epoch),
-                           epoch)
+    
+    ### Extract common starting point for SB models
+     
+    # experiment = 'sb_seed_0'
+    # epoch = 4
+    # extract_checkpoint('output/{}/training/{}_metrics.pt'.format(experiment, experiment), 
+    #                    'output/{}/training/{}_model_epoch_{}.pt'.format(experiment, experiment, epoch), epoch)
+    # truncate_training_file('output/{}/training/{}_metrics.pt'.format(experiment, experiment),
+    #                        'output/{}/training/{}_metrics_epoch_{}.pt'.format(experiment, experiment, epoch),
+    #                        epoch)
+    
+    ### Delete model checkpoint to save disk space
+    experiment = 'bb'
+    del_model_checkpoints('output/{}/training/{}_metrics.pt'.format(experiment, experiment))
