@@ -328,6 +328,7 @@ def display_count_cm(cm, class_names = ['NF', 'OF', 'CF'], figsize=(3,2.5), xlab
     fig = plt.figure(figsize=figsize)
     ax = fig.add_subplot(111)
     plot_cm(cm, recall_cm, class_names, values_format='.0f', ax=ax, xlabel=xlabel, ylabel=ylabel)
+    plt.show()
 
 def plot_cm(cm_val, cm_color, class_names, include_values=True, cmap="Blues", values_format='.1f', ax=None, 
             xticks_rotation='vertical', colorbar=False, xlabel="Predicted label", ylabel="Target label"):
