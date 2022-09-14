@@ -26,7 +26,7 @@ The proposed explainable method quantifies two intermediate variables, tree heig
 
 <img width="600" alt="sb_model_flowchart" src="doc/sb_model_flowchart.png">
 
-## Data information/download:
+## Data information/download (in construction):
 
 The lists of tiles used in the training, validation and test sets are specified in the csv files in folder [data/csv](data/csv) (naming convention <source_1>\_<source_2>\_...\_\<set>.csv). The training, validation and test set spatial repartition is the following:
 
