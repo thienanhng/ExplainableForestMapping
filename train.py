@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.optim as optim
 from dataset import TrainingDataset, MultiTargetTrainingDataset
 from utils import ExpUtils
-from models import Unet, RuleUnet
+from models import Unet, RuleUnet, pretrained_models
 import utils
 from copy import deepcopy
 import random
@@ -53,7 +53,7 @@ def get_parser():
     parser.add_argument('--decision', type=str, default='f', choices=['f', 'h'], help='Configuration of the segmentation'
                         'task. "f": flat, i.e. all classes at the same level. "h":hierarchical, with "forest type" and'
                         '"forest presence/absence" subtasks')
-    parser.add_argument('--weight_bin_loss', type=bool, action='store_true', help='Whether to weight the binary "forest '
+    parser.add_argument('--weight_bin_loss', action='store_true', help='Whether to weight the binary "forest '
                         'presence/absence" loss pixel-wise using weights corresponding to the inverse of the class '
                         'frequencies in the full set of classes.')
     parser.add_argument('--num_workers', type=int, default=8, help='Number of workers to be used by cuda for data '
@@ -67,9 +67,7 @@ def get_parser():
     parser.add_argument('--padding', type=int, default=64, help='Margins to leave out at validation')
     parser.add_argument('--resume_training', action='store_true', help='Flag to indicate that we want to resume '
                         'training from a pretrained model stored in output_dir/training')
-    parser.add_argument('--starting_model_fn', type=str, default=None, help='File containing the model to finetune.')
-    parser.add_argument('--starting_metrics_fn', type=str, default=None, help='File containing the metrics of the '
-                        'pre-trained model (the new metrics will be appended to it).')
+    parser.add_argument('--starting_point', type=str, default=None, help='Name of the starting point to finetune.')
     parser.add_argument('--no_user_input', action='store_true', help='Flag to disable asking user confirmation for '
                         'overwriting files')
     parser.add_argument('--debug', action='store_true', help='Uses a small subset of the training and validation sets'
@@ -100,9 +98,9 @@ class DebugArgs():
     def __init__(self):
         self.debug = True
         self.input_sources = ['SI2017', 'ALTI'] # ['SI2017'] #
-        self.interm_target_sources = [] #['TH', 'TCD1'] # 
+        self.interm_target_sources = ['TH', 'TCD1'] #[] # 
         self.train_csv_fn = 'data/csv/{}_TLM5c_train_with_counts.csv'.format('_'.join(self.input_sources + self.interm_target_sources))
-        self.val_csv_fn = 'data/csv/{}_TLM5C_val.csv'.format('_'.join(self.input_sources + self.interm_target_sources))
+        self.val_csv_fn = 'data/csv/{}_TLM5c_val.csv'.format('_'.join(self.input_sources + self.interm_target_sources))
         self.batch_size = 16 
         self.inference_batch_size = 1
         self.patch_size = 128
@@ -125,10 +123,9 @@ class DebugArgs():
         self.num_workers = 2
         self.skip_validation = False
         self.undersample_validation = 1
-        self.resume_training = False
-        self.starting_model_fn = 'output/my_model/training/my_model_model_epoch_1.pt'
-        self.starting_metrics_fn = 'output/my_model/training/my_model_metrics_epoch_1.pt'
-        self.output_dir = 'output/my_model'
+        self.resume_training = True
+        self.starting_point = 'sb_epoch_4'
+        self.output_dir = 'output/debug'
         self.no_user_input = True
         self.random_seed = 0
 
@@ -144,22 +141,19 @@ def train(args):
     model_fn = os.path.join(args.output_dir, 'training', '{}_model.pt'.format(exp_name))
     
     if args.resume_training:
-        if args.starting_model_fn is None:
-            raise ValueError('"starting_model_fn" must be specified to resume training from pretrained model')
-        elif not os.path.isfile(args.starting_model_fn):
-            raise FileNotFoundError('{} not found'.format(args.starting_model_fn))
-        if args.starting_metrics_fn is None:
-            raise ValueError('"starting_metrics_fn" must be specified to resume training from pretrained model')
-        elif not os.path.isfile(args.starting_metrics_fn):
-            raise FileNotFoundError('{} not found'.format(args.starting_metrics_fn))    
+        if args.starting_point is None:
+            raise ValueError('"starting_point" must be specified to resume training from pretrained model') 
+        else:
+            starting_model_fn = 'output/{0}/training/{0}_model.pt'.format(args.starting_point)
+            starting_metrics_fn = 'output/{0}/training/{0}_metrics.pt'.format(args.starting_point)
             
     ############ Check the paths ###########
     if os.path.isfile(model_fn):
         if os.path.isfile(log_fn):
             if args.resume_training:
-                if model_fn == args.starting_model_fn:
+                if os.path.isfile(starting_model_fn) and model_fn == starting_model_fn:
                     print('Resuming the training process, {} will be updated.'.format(model_fn))
-                if log_fn == args.starting_metrics_fn:
+                if os.path.isfile(starting_metrics_fn) and log_fn == starting_metrics_fn:
                     print('Resuming the training process, {} will be updated.'.format(log_fn))
             else:
                 print('WARNING: Training from scratch, {} and {} will be overwritten'.format(log_fn, model_fn))
@@ -245,7 +239,10 @@ def train(args):
             pass
     if args.resume_training:
         # check that the previous args match the new ones
-        save_dict = torch.load(args.starting_metrics_fn) 
+        if os.path.isfile(starting_metrics_fn):
+            save_dict = torch.load(starting_metrics_fn) 
+        else:
+            save_dict = pretrained_models.get_metrics(args.starting_point, os.path.dirname(starting_metrics_fn))
         previous_args_dict = save_dict['args']
         if args_dict != previous_args_dict:
             print('WARNING: The args saved in {} do not match the current args. '
@@ -284,11 +281,15 @@ def train(args):
                     keys.append('val_correction_penalties')
             if args.decision == 'h':
                 keys.append('val_binary_losses')
-        keys_not_found = list(k not in save_dict.keys() for k in keys)
-        if any(keys_not_found):
+        keys_not_found = list(k for k in keys if k not in save_dict.keys())
+        for key in ['model_checkpoints', 'optimizer_checkpoints']:
+            if key in keys_not_found:
+                save_dict[key] = []
+                keys_not_found.remove(key)                
+        if len(keys_not_found) > 0:
             raise KeyError('Did not find ({}) entry(ies) in {}'.format(
-                            ', '.join([k for k, not_found in zip(keys, keys_not_found) if not_found]), 
-                            log_fn))
+                            ', '.join(keys_not_found), 
+                            starting_metrics_fn))
 
 
     if torch.cuda.is_available():
@@ -412,20 +413,23 @@ def train(args):
     # load checkpoints if resuming training from existing model
     if args.resume_training:
         # load the state dicts (model and optimizer)
-        starting_point = torch.load(args.starting_model_fn) #torch.load(model_fn)
-        model.load_state_dict(starting_point['model'])
+        if os.path.isfile(starting_model_fn):
+            starting_model= torch.load(starting_model_fn) #torch.load(model_fn)
+        else:
+            starting_model = pretrained_models.get_model(args.starting_point, os.path.dirname(starting_model_fn))
+        model.load_state_dict(starting_model['model'])
         if exp_utils.sem_bot:
             # restore buffer values from before load_state_dict
             model.segmentation_head.load_buffers(buffers, device = device)
-        optimizer.load_state_dict(starting_point['optimizer'])
+        optimizer.load_state_dict(starting_model['optimizer'])
         for el in optimizer.param_groups:
             el['lr'] = args.lr[0]
         # set the starting epoch
-        starting_epoch = starting_point['epoch'] + 1
+        starting_epoch = starting_model['epoch'] + 1
         # set the random state of when the pretraining was stopped
-        random.setstate(starting_point['random_state']['random'])
-        np.random.set_state(starting_point['random_state']['numpy'])
-        torch.set_rng_state(starting_point['random_state']['pytorch'])
+        random.setstate(starting_model['random_state']['random'])
+        np.random.set_state(starting_model['random_state']['numpy'])
+        torch.set_rng_state(starting_model['random_state']['pytorch'])
     else:
         save_dict = {
                 'args': args_dict,
@@ -494,7 +498,7 @@ def train(args):
     
     g = torch.Generator()
     if args.resume_training:
-        g.set_state(starting_point['random_state']['pytorch_generator'])
+        g.set_state(starting_model['random_state']['pytorch_generator'])
     else:
         g.manual_seed(seed)
     

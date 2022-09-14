@@ -1,6 +1,6 @@
 #!/bin/bash
 
-experiment=bb_seed_0
+experiment=bb
 
 python train.py \
         --input_sources SI2017 ALTI \

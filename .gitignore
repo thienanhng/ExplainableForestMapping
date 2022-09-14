@@ -144,3 +144,6 @@ dmypy.json
 log*.txt
 tmp*/
 copy_files.sh
+*metrics*.pt
+*model*.pt
+*debug.ipynb

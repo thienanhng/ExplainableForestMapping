@@ -1,6 +1,6 @@
 #!/bin/bash
 
-experiment=bb_wo_alti_seed_0
+experiment=bb_dem_ablation
 
 python train.py \
         --input_sources SI2017 \
@@ -20,4 +20,4 @@ python train.py \
         --num_workers 2 \
         --random_seed 0 \
         --output_dir output/$experiment \
-        > log_bb_wo_alti_training.txt
+        > log_${experiment}_training.txt

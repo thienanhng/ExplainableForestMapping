@@ -1,12 +1,11 @@
 #!/bin/bash
 
 # trained models:
-# BB: bb_seed_0
-# BB with single task: bb_flat_seed_0
-# BB without DEM: bb_wo_alti_seed_0
-# BB with weight binary loss: bb_weighted_bin_loss_seed_0
+# BB: bb
+# BB with single task: bb_flat
+# BB without DEM: bb_dem_ablation
 
-experiment=bb_weighted_bin_loss_seed_0
+experiment=bb
 set=test
 
 python infer.py \

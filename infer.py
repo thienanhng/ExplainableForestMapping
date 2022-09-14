@@ -8,6 +8,7 @@ from utils import ExpUtils
 from copy import deepcopy
 import random
 import numpy as np
+from models import pretrained_models
 
 ########################### PARAMETERS ########################################
 
@@ -25,7 +26,9 @@ def get_parser():
         help='Sources of supervision for intermediate regression tasks. TH: tree height from the VHM NFI (Vegetation '
         'Height Model, Swiss National Forest Inventory). TCD1: Tree Canopy Density obtained by thresholding the VHM NFI'
         ' at 1m and spatial averaging.')
-    parser.add_argument('--model_fn', type=str, required=True,
+    parser.add_argument('--exp_name', type=str, default='bb', help='Name of the model (training experiment) to use. '
+                        'Ignored if model_fn is specified.')
+    parser.add_argument('--model_fn', type=str, default=None,
         help='Path to the model file.')
     parser.add_argument('--output_dir', type=str, required = True,
         help='Directory where the output predictions will be stored.')
@@ -61,18 +64,18 @@ class DebugArgs():
         self.padding = 64
         self.batch_size = 1 # faster with batch size of 1
         self.num_workers = 2
-        self.save_hard = True
+        self.save_hard = False
         self.save_soft = False
-        self.save_error_map = True
+        self.save_error_map = False
         self.save_corr = False
         self.save_interm = False
         self.overwrite = True
         set = 'test' 
         self.csv_fn = 'data/csv/{}_TLM5c_{}.csv'.format('_'.join(self.input_sources + self.interm_target_sources), set)
         # self.csv_fn = 'data/csv/{}_{}.csv'.format('_'.join(self.input_sources), set) # for inference without evaluation
-        exp_name = 'bb_flat_seed_0' #'bb_wo_alti'
-        self.model_fn = 'output/{}/training/{}_model.pt'.format(exp_name, exp_name)
-        self.output_dir = 'output/{}/inference/epoch_19/{}'.format(exp_name, set)
+        self.exp_name = 'bb' #'bb_wo_alti'
+        self.model_fn = None #'output/{0}/training/{0}_model.pt'.format(exp_name)
+        self.output_dir = 'output/{}/inference/epoch_19/{}'.format(self.exp_name, set)
         self.random_seed = 0
 
         self.evaluate = False 
@@ -83,15 +86,6 @@ class DebugArgs():
 def infer(args):
 
     ##################### ARGUMENT CHECKING ###################################
-
-    # check paths of model and input
-    if not os.path.exists(args.csv_fn):
-        raise FileNotFoundError("{} does not exist".format(args.csv_fn))
-    if os.path.exists(args.model_fn):
-        model_fn = args.model_fn
-        exp_name = os.path.basename(os.path.dirname(os.path.dirname(args.model_fn)))
-    else:
-        raise FileNotFoundError('{} does not exist.'.format(args.model_fn))
 
     # check output path
     output_dir = args.output_dir
@@ -116,6 +110,16 @@ def infer(args):
             os.makedirs(output_dir)
     if args.evaluate:
             metrics_fn = os.path.join(output_dir, '{}_metrics.pt'.format(exp_name))
+            
+    # check paths of model and input
+    if not os.path.exists(args.csv_fn):
+        raise FileNotFoundError("{} does not exist".format(args.csv_fn))
+    if args.model_fn is not None: # None means that the model will be downloaded from the web
+        if os.path.exists(args.model_fn):
+            model_fn = args.model_fn
+            exp_name = os.path.basename(os.path.dirname(os.path.dirname(args.model_fn)))
+        else:
+            raise FileNotFoundError('{} does not exist.'.format(args.model_fn))
              
     seed = args.random_seed
     torch.manual_seed(seed)
@@ -131,7 +135,11 @@ def infer(args):
         raise RuntimeError("CUDA is not available")
 
     # Set up data and utilities
-    model_obj = torch.load(model_fn)
+    if args.model_fn is None:
+        model_dir = 'output/{}/training'.format(args.exp_name)
+        model_obj = pretrained_models.get_model(args.exp_name, model_dir)
+    else:
+        model_obj = torch.load(model_fn)
     decision = model_obj['model_params']['decision']
     n_input_sources = len(args.input_sources)
     try:

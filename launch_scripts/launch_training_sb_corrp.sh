@@ -1,6 +1,6 @@
 #!/bin/bash
 
-experiment=sb_corrp_seed_0
+experiment=sb_corrp
 
 python train.py \
         --input_sources SI2017 ALTI \
@@ -26,8 +26,7 @@ python train.py \
         --num_workers 2 \
         --output_dir output/$experiment \
         --resume_training \
-        --starting_model_fn output/sb_seed_0/training/sb_seed_0_model_epoch_4.pt \
-        --starting_metrics_fn output/sb_seed_0/training/sb_seed_0_metrics_epoch_4.pt \
+        --starting_point sb_epoch_4 \
         --random_seed 0 \
         --no_user_input \
         > log_${experiment}_training.txt

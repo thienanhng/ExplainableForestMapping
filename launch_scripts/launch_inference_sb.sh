@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # trained models:
-# sb: sb_seed_0
-# sbcorr+: sb_corrp_seed_0
-# sbrule-: sb_rulem_seed_0
+# sb: sb
+# sbcorr+: sb_corrp
+# sbrule-: sb_rulem
 
-experiment=sb_seed_0
+experiment=sb
 set=test_with_context
 python infer.py \
         --input_sources SI2017 ALTI \
