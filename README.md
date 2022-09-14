@@ -55,9 +55,9 @@ Anaconda environment
 Coming soon
 ```
 
-### Training (in construction)
+### Training and inference (in construction)
 
-The python scripts to train a model or perform inference are [train.py](train.py) and [infer.py](infer.py) respectively. Bash scripts corresponding to each experiment in the paper are available [here](launch_scripts/), with naming convention *launch\_\<task>\_<experiment\_name>.sh*.
+The python scripts to train a model or perform inference are [train.py](train.py) and [infer.py](infer.py) respectively. Bash scripts corresponding to each experiment in the paper are available [here](launch_scripts/), with naming convention *launch\_\<task>\_<experiment\_name>.sh*. You can edit these scripts to run your own training/inference process.
 
 The experiments are:
   - bb: black-box model (BB), which is the baseline model
@@ -69,7 +69,7 @@ The experiments are:
     - bb_alti_ablation: black-box model trained without using the DEM as input
     - bb_flat: black-box model trained for a single, non-hierarchical segmentation task
   
-For each experiment, the trained model weights as well as the metrics at each epoch are available in the [output](output/) folder. All the metrics can be visualized in the notebooks in the [analysis](analysis/) folder.
+For each experiment listed above, the trained model weights as well as the metrics at each epoch are provided; when needed (for inference or fine-tuning), they are automatically downloaded. All the results can be visualized in the notebooks in the [analysis](analysis/) folder.
   
 ## Warnings
 - make sure to update the filepaths in the csv files in [data/csv](data/csv) according to where you stored the data, and which tiles you are using.
