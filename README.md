@@ -32,16 +32,15 @@ The lists of tiles used in the training, validation and test sets are specified 
 
 <img width="600" alt="aoi_w_splits_w_legend" src="doc/aoi_w_splits_w_legend.png">
 
-The data can be downloaded using the following links:
 - input data:
-  - [SwissImage data](https://www.swisstopo.admin.ch/en/geodata/images/ortho/swissimage10.html#download): we downsampled the images to a resolution of 25cm using [this script](data/SI_processing/downsample_SI2017.py)
+  - [SwissImage data](https://www.swisstopo.admin.ch/en/geodata/images/ortho/swissimage10.html#download)
   - [SwissALTI3D data](https://www.swisstopo.admin.ch/en/geodata/height/alti3d.html#download)
 - target data:
   - original data:
     - [SwissTLM3D vector data](https://www.swisstopo.admin.ch/en/geodata/landscape/tlm3d.html#download)
     - [VHM NFI data](https://www.envidat.ch/dataset/vegetation-height-model-nfi)
   - processed data:
-    - rasterized forest targets obtained from SwissTLM3D and TH et TCD targets obtained by processing the VHM can be downloaded [here](https://drive.google.com/file/d/1zBDuug1I3j_N27uj6FXKR7EniK7ED47o/view?usp=sharing)
+    - rasterized forest targets obtained from SwissTLM3D and TH et TCD targets obtained by processing the VHM. For download, see [here](#download-dataset)
 
 Geo-located plot data from Swiss National Forest Inventory (NFI) that we used for comparison is not currently openly available. More info [here](https://lfi.ch/lfi/lfi-en.php).
 
@@ -54,7 +53,12 @@ Anaconda environment
 ```
 Coming soon
 ```
+### Download dataset (in construction)
 
+Run the following command to download the full dataset (aerial imagery, DEM, rasterized and processed targets). Replace `../Data` with the folder where you want the dataset to be stored. Make sure you have x GB (!) of free space.
+```bash
+. data/get_dataset.sh ../Data
+```
 ### Training and inference (in construction)
 
 The python scripts to train a model or perform inference are [train.py](train.py) and [infer.py](infer.py) respectively. Bash scripts corresponding to each experiment in the paper are available [here](launch_scripts/), with naming convention *launch\_\<task>\_<experiment\_name>.sh*. You can edit these scripts to run your own training/inference process.
