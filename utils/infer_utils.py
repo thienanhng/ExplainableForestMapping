@@ -22,7 +22,7 @@ class Inference():
     otherwise a new nodata value is introduced depending on the raster data type. When calling infer(), the criteria 
     ignore_index attributes are modified accordingly.
     """
-    def __init__(self, model, file_list, exp_utils, padding=64, tile_margin=64, output_dir=None, evaluate=True, 
+    def __init__(self, model, data_dir, file_list, exp_utils, padding=64, tile_margin=64, output_dir=None, evaluate=True, 
                 save_hard=True, save_soft=True, save_error_map=False, save_corr=False, save_interm=False,
                 batch_size=1, num_workers=0, device=0, undersample=1, decision='f', random_seed=None,
                 weight_bin_loss=False):
@@ -30,6 +30,7 @@ class Inference():
         """
         Args:
             - model (nn.Module): model to perform inference with
+            - data_dir (str): directory where the data is stored
             - file_list (str): csv file containing the files to perform inference on (1 sample per row)
             - exp_utils (ExpUtils): object containing information of the experiment/dataset
             - padding (int): margin to remove around predictions
@@ -53,7 +54,6 @@ class Inference():
             - weight_bin_loss (bool): weight the binary forest presence/absence loss with weights from the class 
             of the full set of classes. 
         """
-
         self.evaluate = evaluate  
         self.save_hard = save_hard
         self.save_soft = save_soft
@@ -96,7 +96,8 @@ class Inference():
 
         file_list_ext = os.path.splitext(file_list)[-1]
         if file_list_ext == '.csv':
-            df = pd.read_csv(file_list)
+            f = lambda x: os.path.join(data_dir, x)
+            df = pd.read_csv(file_list).applymap(f)
         else:
             raise ValueError('file_list should be a csv file ("*.csv")')
         if evaluate or save_error_map:

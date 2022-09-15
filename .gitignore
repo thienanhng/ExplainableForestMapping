@@ -147,3 +147,5 @@ copy_files.sh
 *metrics*.pt
 *model*.pt
 *debug.ipynb
+*subset*.csv
+get_dataset_subset.sh

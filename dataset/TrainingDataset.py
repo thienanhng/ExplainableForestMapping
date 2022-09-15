@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import torch
 from torch.utils.data.dataset import IterableDataset
@@ -15,6 +16,7 @@ class TrainingDataset(IterableDataset):
                  dataset_csv, 
                  n_input_sources, 
                  exp_utils, 
+                 data_dir,
                  control_training_set=True, 
                  n_neg_samples=None,
                  patch_size=128, 
@@ -25,12 +27,13 @@ class TrainingDataset(IterableDataset):
             - dataset_csv (str): csv file listing the dataset inputs and target files, with one tile per row
             - n_input_sources (int): number of input sources
             - exp_utils (ExpUtils): ExpUtils object specifying methods and parameters to use for the current experiment
+            - data_dir (str): directory where the data is stored
             - control_training_set (bool): whether to control the number of images without class 0 use at each epoch
             - n_neg_samples (int): number of negative samples (i.e. containing class 0 only) to use
             - patch_size (int): size of the small patches to extract from the input tiles
             - debug (bool): whether to use only a subset of the files listed in "dataset_csv", to speed up debugging
         """
-
+        self.data_dir = data_dir
         self.n_input_sources = n_input_sources
         self.control_training_set = control_training_set
         
@@ -210,8 +213,8 @@ class TrainingDataset(IterableDataset):
 
     def _read_tile(self, df_row):
         try: # open files
-            img_fp = [rasterio.open(fn, "r") for fn in list(df_row[self.input_col_names])]
-            target_fp = rasterio.open(df_row['target'], "r")
+            img_fp = [rasterio.open(os.path.join(self.data_dir, fn), "r") for fn in list(df_row[self.input_col_names])]
+            target_fp = rasterio.open(os.path.join(self.data_dir, df_row['target']), "r")
         except (RasterioIOError, rasterio.errors.CRSError) as e:
             print('WARNING: {}'.format(e))
             return None
@@ -272,6 +275,7 @@ class MultiTargetTrainingDataset(TrainingDataset):
                  n_input_sources, 
                  n_interm_target_sources, 
                  exp_utils, 
+                 data_dir,
                  control_training_set=True, 
                  patch_size=128, 
                  n_neg_samples=None, 
@@ -288,7 +292,7 @@ class MultiTargetTrainingDataset(TrainingDataset):
                 'interm_target_sources was set as {}, but should be greater than 0.'.format(n_interm_target_sources))
         self.n_interm_target_sources = n_interm_target_sources
         
-        super().__init__(dataset_csv, n_input_sources, exp_utils, control_training_set=control_training_set, 
+        super().__init__(dataset_csv, n_input_sources, exp_utils, data_dir, control_training_set=control_training_set, 
                          n_neg_samples=n_neg_samples, patch_size=patch_size, verbose=verbose, debug=debug)
         
         
@@ -307,7 +311,7 @@ class MultiTargetTrainingDataset(TrainingDataset):
         img_data, target_data = super()._read_tile(df_row)
         
         try: # open files
-            interm_target_fp = [rasterio.open(fn, "r") for fn in list(df_row[self.interm_target_col_names])]
+            interm_target_fp = [rasterio.open(os.path.join(self.data_dir, fn), "r") for fn in list(df_row[self.interm_target_col_names])]
         except (RasterioIOError, rasterio.errors.CRSError) as e:
             print('WARNING: {}'.format(e))
             return None

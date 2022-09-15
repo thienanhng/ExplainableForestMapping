@@ -15,6 +15,7 @@ from models import pretrained_models
 def get_parser():
 
     parser = argparse.ArgumentParser(description='Launch model inference')
+    parser.add_argument('--data_dir', type=str, help='Directory where the data is stored')
     parser.add_argument('--csv_fn', type=str, help='Path to a CSV file containing at least two columns -- "input" or '
             '"input_x" (x an integer, for multimodal model), "target", and optionally "interm_target_x", that point to '
             'files of the dataset imagery and targets and optionally intermediate concept targets')
@@ -61,6 +62,7 @@ class DebugArgs():
     def __init__(self):
         self.input_sources = ['SI2017', 'ALTI'] #['SI2017'] # 
         self.interm_target_sources = [] # ['TH', 'TCD1'] #
+        self.data_dir = '../Data'
         self.padding = 64
         self.batch_size = 1 # faster with batch size of 1
         self.num_workers = 2
@@ -197,7 +199,7 @@ def infer(args):
     ####################### INFERENCE #########################################
 
 
-    inference = utils.Inference(model, args.csv_fn, exp_utils, padding=args.padding, tile_margin=args.padding, 
+    inference = utils.Inference(model, args.data_dir, args.csv_fn, exp_utils, padding=args.padding, tile_margin=args.padding, 
                                 batch_size=args.batch_size, 
                                 output_dir=output_dir, evaluate=args.evaluate, 
                                 save_hard=args.save_hard, save_soft=args.save_soft, 

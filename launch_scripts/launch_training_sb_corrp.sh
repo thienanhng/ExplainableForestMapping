@@ -5,6 +5,7 @@ experiment=sb_corrp
 python train.py \
         --input_sources SI2017 ALTI \
         --interm_target_sources TH TCD1 \
+        --data_dir ../Data \
         --train_csv_fn data/csv/SI2017_ALTI_TH_TCD1_TLM5c_train_with_counts.csv \
         --val_csv_fn data/csv/SI2017_ALTI_TH_TCD1_TLM5c_val.csv \
         --batch_size 16 \

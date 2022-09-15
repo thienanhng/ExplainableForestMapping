@@ -28,6 +28,7 @@ def get_parser():
         help='Sources of supervision for intermediate regression tasks. TH: tree height from the VHM NFI (Vegetation '
         'Height Model, Swiss National Forest Inventory). TCD1: Tree Canopy Density obtained by thresholding the VHM NFI'
         ' at 1m and spatial averaging.')
+    parser.add_argument('--data_dir', type=str, help='Directory where the data is stored')
     parser.add_argument('--train_csv_fn', type=str, help='Csv file listing the input and target files to use for training')
     parser.add_argument('--val_csv_fn', type=str, help='Csv file listing the input and target files to use for validation')
     parser.add_argument('--output_dir', type = str, help='Directory where to store models and metrics. '
@@ -97,6 +98,7 @@ class DebugArgs():
     """Class for setting arguments directly in this python script instead of through a command line"""
     def __init__(self):
         self.debug = True
+        self.data_dir = '../Data'
         self.input_sources = ['SI2017', 'ALTI'] # ['SI2017'] #
         self.interm_target_sources = ['TH', 'TCD1'] #[] # 
         self.train_csv_fn = 'data/csv/{}_TLM5c_train_with_counts.csv'.format('_'.join(self.input_sources + self.interm_target_sources))
@@ -477,6 +479,7 @@ def train(args):
                     n_input_sources=n_input_sources,
                     n_interm_target_sources=n_interm_targets,
                     exp_utils = exp_utils,
+                    data_dir=args.data_dir,
                     control_training_set=control_training_set,
                     n_neg_samples = None,
                     patch_size=args.patch_size,
@@ -488,6 +491,7 @@ def train(args):
                     dataset_csv=args.train_csv_fn,
                     n_input_sources=n_input_sources,
                     exp_utils = exp_utils,
+                    data_dir=args.data_dir,
                     control_training_set=control_training_set,
                     n_neg_samples = None,
                     patch_size=args.patch_size,
@@ -543,7 +547,7 @@ def train(args):
     
     if not args.skip_validation:
         # we do not specify a random seed here (we only want the training to be reproducible)
-        inference = utils.Inference(model, 
+        inference = utils.Inference(model, args.data_dir,
                 args.val_csv_fn, exp_utils, output_dir=None, 
                 evaluate=True, save_hard=False, save_soft=False, save_error_map=False,
                 batch_size=args.inference_batch_size, padding=args.padding, 

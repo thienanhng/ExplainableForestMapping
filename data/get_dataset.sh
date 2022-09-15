@@ -1,7 +1,39 @@
 #!/bin/bash
-
-echo "Downloading aerial images"
-mkdir -p ${data_dir}/SwissImage/2017_10cm
-wget -i -P ${data_dir}/SwissImage/2017_10cm data/csv/SI_download_all.csv
-echo "Downsampling the aerial images"
-python data/SI_processing/downsample_SI2017.py --source_dir ${data_dir}/SwissImage/2017_10cm --dest_dir ${data_dir}/SwissImage/2017_25cm
+if [ -z $1 ] 
+    then
+        echo "Argument missing: directory where dataset should be stored"
+    else
+        working_dir=$PWD
+        echo "The dataset will be stored in $1"
+        echo "Downloading aerial images..."
+        mkdir -p $1/SwissImage/2017_10cm
+        wget -nc -P $1/SwissImage/2017_10cm -i data/csv/download_SI_all.csv
+        echo
+        echo "Downsampling the aerial images..."
+        python data/SI_processing/downsample_SI2017.py --source_dir $1/SwissImage/2017_10cm --dest_dir $1/SwissImage/2017_25cm
+        echo
+        read -p "Delete original aerial images (keep only downsampled ones)? (y/n)" -n 1 -r
+        if [[ $REPLY =~ ^[Yy]$ ]]
+            then
+                echo "Deleting original aerial images..."
+                rm -r $1/SwissImage/2017_10cm
+        fi
+        echo
+        echo "Downloading the DEM"
+        wget -nc -P $1/SwissALTI3D -i data/csv/download_ALTI_all.csv
+        cd $1/SwissALTI3D
+        rename 's/swissalti3d_2019_/SWISSALTI3D_0.5_TIFF_CHLV95_LN02_/' *.tif
+        rename 's/_0.5_2056_5728//' *.tif
+        rename 's/-/_/' *.tif
+        cd $working_dir
+        echo
+        echo "Downloading the label data..."
+        cd $1
+        gdown https://drive.google.com/uc?id=1RjqIjBjW8goR9QA0JrLahJNBbbACvgWz
+        tar -xf TCD_NFI_1m.tar.xz 
+        gdown https://drive.google.com/uc?id=1kWAJYOi-KuYHOyuCSr3Vp5p9tufWUDun 
+        tar -xf TH_NFI.tar.xz
+        gdown https://drive.google.com/uc?id=11MTqKM6xMe3OVzJmyLRSyiZONGeZoCuI 
+        tar -xf TLMRaster.tar.xz
+        cd $working_dir
+fi

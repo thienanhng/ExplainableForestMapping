@@ -4,6 +4,7 @@ experiment=bb
 
 python train.py \
         --input_sources SI2017 ALTI \
+        --data_dir ../Data \
         --train_csv_fn data/csv/SI2017_ALTI_TLM5c_train_with_counts.csv \
         --val_csv_fn data/csv/SI2017_ALTI_TLM5c_val.csv \
         --batch_size 16 \
