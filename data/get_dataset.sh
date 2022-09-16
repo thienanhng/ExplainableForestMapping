@@ -18,11 +18,11 @@ if [ -z $1 ]
         echo
         echo "Downloading the label data..."
         cd $1
-        gdown https://drive.google.com/uc?id=1RjqIjBjW8goR9QA0JrLahJNBbbACvgWz
-        tar -xf TCD_NFI_1m.tar.xz 
-        gdown https://drive.google.com/uc?id=1kWAJYOi-KuYHOyuCSr3Vp5p9tufWUDun 
-        tar -xf TH_NFI.tar.xz
-        gdown https://drive.google.com/uc?id=11MTqKM6xMe3OVzJmyLRSyiZONGeZoCuI 
+        wget https://zenodo.org/record/7084921/files/TCD_1m.tar.xz?download=1
+        tar -xf TCD_1m.tar.xz 
+        wget https://zenodo.org/record/7084921/files/TH.tar.xz?download=1 
+        tar -xf TH.tar.xz
+        wget https://zenodo.org/record/7084921/files/TLMRaster.tar.xz?download=1
         tar -xf TLMRaster.tar.xz
         cd $working_dir
 fi

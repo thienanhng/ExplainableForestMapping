@@ -147,5 +147,7 @@ copy_files.sh
 *metrics*.pt
 *model*.pt
 *debug.ipynb
-*subset*.csv
+download_ALTI_subset.csv
+download_SI_subset.csv
 get_dataset_subset.sh
+predictions*.tif

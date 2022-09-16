@@ -62,11 +62,11 @@ class DebugArgs():
     def __init__(self):
         self.input_sources = ['SI2017', 'ALTI'] #['SI2017'] # 
         self.interm_target_sources = [] # ['TH', 'TCD1'] #
-        self.data_dir = '../Data'
+        self.data_dir = os.path.join(os.path.dirname(os.path.dirname(os.getcwd())),'Data')
         self.padding = 64
         self.batch_size = 1 # faster with batch size of 1
         self.num_workers = 2
-        self.save_hard = False
+        self.save_hard = True
         self.save_soft = False
         self.save_error_map = False
         self.save_corr = False
@@ -85,15 +85,16 @@ class DebugArgs():
 
 ###############################################################################
 
-def infer(args):
+def infer(output_dir, model_fn, data_dir, csv_fn, input_sources, interm_target_sources=[], exp_name='my_model',
+            overwrite=True, evaluate=True, save_hard=True, save_soft=False, save_error_map=False, save_corr=True, save_interm=True, 
+            batch_size=1, padding=64, num_workers=0, random_seed=0):
 
     ##################### ARGUMENT CHECKING ###################################
-
+    args_dict = locals()
     # check output path
-    output_dir = args.output_dir
     if output_dir is None: # defaut directory for output images
-        inference_dir = os.path.join(os.path.dirname(os.path.dirname(args.model_fn)), 'inference')
-        model_name = os.path.splitext(os.path.basename(args.model_fn))[0]
+        inference_dir = os.path.join(os.path.dirname(os.path.dirname(model_fn)), 'inference')
+        model_name = os.path.splitext(os.path.basename(model_fn))[0]
         output_dir = os.path.join(inference_dir, model_name)
         os.makedirs(output_dir, exist_ok = True)
     else: # custom directory for output images/metrics
@@ -101,7 +102,7 @@ def infer(args):
             if os.path.isfile(output_dir):
                 raise NotADirectoryError("A file was passed as `--output_dir`, please pass a directory!")
             elif len(os.listdir(output_dir)) > 0:
-                if args.overwrite:
+                if overwrite:
                     print("WARNING: Output directory {} already exists, we might overwrite data in it!"
                             .format(output_dir))
                 else:
@@ -110,20 +111,20 @@ def infer(args):
         else:
             print("{} doesn't exist, creating it.".format(output_dir))
             os.makedirs(output_dir)
-    if args.evaluate:
+    if evaluate:
             metrics_fn = os.path.join(output_dir, '{}_metrics.pt'.format(exp_name))
             
     # check paths of model and input
-    if not os.path.exists(args.csv_fn):
-        raise FileNotFoundError("{} does not exist".format(args.csv_fn))
-    if args.model_fn is not None: # None means that the model will be downloaded from the web
-        if os.path.exists(args.model_fn):
-            model_fn = args.model_fn
-            exp_name = os.path.basename(os.path.dirname(os.path.dirname(args.model_fn)))
+    if not os.path.exists(csv_fn):
+        raise FileNotFoundError("{} does not exist".format(csv_fn))
+    if model_fn is not None: # None means that the model will be downloaded from the web
+        if os.path.exists(model_fn):
+            model_fn = model_fn
+            exp_name = os.path.basename(os.path.dirname(os.path.dirname(model_fn)))
         else:
-            raise FileNotFoundError('{} does not exist.'.format(args.model_fn))
+            raise FileNotFoundError('{} does not exist.'.format(model_fn))
              
-    seed = args.random_seed
+    seed = random_seed
     torch.manual_seed(seed)
     random.seed(seed)
     np.random.seed(seed)
@@ -137,19 +138,19 @@ def infer(args):
         raise RuntimeError("CUDA is not available")
 
     # Set up data and utilities
-    if args.model_fn is None:
-        model_dir = 'output/{}/training'.format(args.exp_name)
-        model_obj = pretrained_models.get_model(args.exp_name, model_dir)
+    if model_fn is None:
+        model_dir = 'output/{}/training'.format(exp_name)
+        model_obj = pretrained_models.get_model(exp_name, model_dir)
     else:
         model_obj = torch.load(model_fn)
     decision = model_obj['model_params']['decision']
-    n_input_sources = len(args.input_sources)
+    n_input_sources = len(input_sources)
     try:
         epsilon_rule = model_obj['model_params']['epsilon_rule']
     except KeyError:
         epsilon_rule = 1e-3
-    exp_utils = ExpUtils(args.input_sources, 
-                               args.interm_target_sources, 
+    exp_utils = ExpUtils(input_sources, 
+                               interm_target_sources, 
                                decision=decision,
                                epsilon_rule=epsilon_rule)
     
@@ -199,26 +200,26 @@ def infer(args):
     ####################### INFERENCE #########################################
 
 
-    inference = utils.Inference(model, args.data_dir, args.csv_fn, exp_utils, padding=args.padding, tile_margin=args.padding, 
-                                batch_size=args.batch_size, 
-                                output_dir=output_dir, evaluate=args.evaluate, 
-                                save_hard=args.save_hard, save_soft=args.save_soft, 
-                                save_error_map = args.save_error_map, save_corr=args.save_corr, 
-                                save_interm=args.save_interm,
-                                num_workers=args.num_workers, device=device, decision=decision,
+    inference = utils.Inference(model, data_dir, csv_fn, exp_utils, padding=padding, tile_margin=padding, 
+                                batch_size=batch_size, 
+                                output_dir=output_dir, evaluate=evaluate, 
+                                save_hard=save_hard, save_soft=save_soft, 
+                                save_error_map = save_error_map, save_corr=save_corr, 
+                                save_interm=save_interm,
+                                num_workers=num_workers, device=device, decision=decision,
                                 random_seed=seed)
 
     result = inference.infer(detailed_regr_metrics=True)
 
     ######################### EVALUATION ######################################
     
-    if args.evaluate:
+    if evaluate:
         if result is not None:
             cumulative_cm, report, *other_outputs = result
-            if isinstance(args, DebugArgs):
-                args_dict = args.__dict__
-            else:
-                args_dict = vars(args).copy()
+            # if isinstance(args, DebugArgs):
+            #     args_dict = args.__dict__
+            # else:
+            #     args_dict = vars(args).copy()
             if exp_utils.sem_bot:
                 args_dict['interm_concepts'] = exp_utils.interm_concepts
             # Save metrics
@@ -248,4 +249,10 @@ if __name__ == "__main__":
         parser = get_parser()
         args = parser.parse_args()
 
-    infer(args)
+    infer(args.output_dir, args.model_fn, args.data_dir, args.csv_fn, args.input_sources, 
+            interm_target_sources=args.interm_target_sources, exp_name=args.exp_name,
+            overwrite=args.overwrite, evaluate=args.evaluate, save_hard=args.save_hard, save_soft=args.save_soft, 
+            save_error_map=args.save_error_map, save_corr=args.save_corr, save_interm=args.save_interm, 
+            batch_size=args.batch_size, padding=args.padding, num_workers=args.num_workers, random_seed=args.random_seed)
+        
+        

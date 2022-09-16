@@ -21,8 +21,8 @@ csv_fn = os.path.join(project_dir, "data/csv/TileKeys_val_viz_subset.csv") # til
 ### output directory and filename prefix
 threshold_height = 1
 data_dir = os.path.join(os.path.dirname(os.path.dirname(project_dir)), 'Data')
-img_out_dir = os.path.join(data_dir, "TCD_NFI_{}m".format(threshold_height))
-prefix_out = "TCD_NFI_{}m".format(threshold_height)
+img_out_dir = os.path.join(data_dir, "TCD_{}m".format(threshold_height))
+prefix_out = "TCD_{}m".format(threshold_height)
 
 ### input raster mosaic
 mosaic_fn = os.path.join(
@@ -116,7 +116,7 @@ with rasterio.open(mosaic_fn, 'r') as f_mosaic:
             # replace all values polluted by nans by nodata value
             im_out[torch.isnan(im_out)] = nodata
             # write the process tile
-            fn_out = fn.replace('VHM_NFI_bin', 'TCD_NFI')
+            fn_out = fn.replace('VHM_NFI_bin', 'TCD')
             profile['dtype'] = 'float32'
             profile['nodata'] = nodata
             with rasterio.open(fn_out, 'w', **profile) as f_out:

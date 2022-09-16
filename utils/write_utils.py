@@ -9,8 +9,10 @@ class Writer():
         # get rasterio profile
         with rasterio.open(template_fn, 'r') as f:
             profile = f.profile.copy()
-            profile["driver"] = "GTiff"
-            del profile["nodata"]
+        profile["driver"] = "GTiff"
+        profile["photometric"] = "rgb"
+        profile["compress"] = 'lzw'
+        del profile["nodata"]
         profile = self._rescale_profile(profile, template_scale, dest_scale) 
         self.profile = profile
         self.tilenum = tilenum

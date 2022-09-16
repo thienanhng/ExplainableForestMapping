@@ -6,11 +6,12 @@ import os
 import rasterio
 from csv import reader
 from tqdm import tqdm
-from rasterio.enums import Resampling
+from rasterio.enums import Resampling, ColorInterp
 from rasterio import Affine
 import argparse
 import requests
 import csv
+import numpy as np
 
 def get_parser():
     parser = argparse.ArgumentParser(
@@ -58,7 +59,10 @@ def downsample_dataset(url_csv_fn, orig_im_dir, new_im_dir):
                                                     new_height, 
                                                     new_width),
                                                     resampling = Resampling.bilinear)
-                                    
+                    # # WARNING resampling is not equivalent in all color spaces
+                    # if output_profile['photometric'] == 'ycbcr':
+                    #     # img = ycbcr2rgb(img)
+                    output_profile['photometric'] = 'rgb'
                     output_profile['height'] = new_height
                     output_profile['width'] = new_width
                     
@@ -67,6 +71,15 @@ def downsample_dataset(url_csv_fn, orig_im_dir, new_im_dir):
                         f_out.write(img)
             # delete original image
             os.remove(fn)
+
+def ycbcr2rgb(im):
+    xform = np.array([[1, 0, 1.402], [1, -0.34414, -.71414], [1, 1.772, 0]])
+    rgb = np.moveaxis(im.astype(np.float), [1, 2, 0], [0, 1, 2])
+    rgb[:,:,[1,2]] -= 128
+    rgb = rgb @ xform #.T
+    np.putmask(rgb, rgb > 255, 255)
+    np.putmask(rgb, rgb < 0, 0)
+    return np.moveaxis(np.uint8(rgb), [2, 0, 1], [0, 1, 2])
 
 if __name__ == "__main__":
     parser = get_parser()

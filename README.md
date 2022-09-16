@@ -55,7 +55,7 @@ Coming soon
 ```
 ### Download dataset (in construction)
 
-Run the following command to download the full dataset (aerial imagery, DEM, rasterized and processed targets). Replace `../Data` with the folder where you want the dataset to be stored. Make sure you have x GB (!) of free space.
+Run the following command to download the full dataset (aerial imagery, DEM, rasterized and processed targets). Replace `../Data` with the folder where you want the dataset to be stored. Make sure you have 90 GB (!) of free space.
 ```bash
 . data/get_dataset.sh ../Data
 ```
@@ -73,7 +73,7 @@ The experiments are:
     - bb_alti_ablation: black-box model trained without using the DEM as input
     - bb_flat: black-box model trained for a single, non-hierarchical segmentation task
   
-For each experiment listed above, the trained model weights as well as the metrics at each epoch are provided; when needed (for inference or fine-tuning), they are automatically downloaded. All the results can be visualized in the notebooks in the [analysis](analysis/) folder.
+For each experiment listed above, the trained model weights as well as the metrics at each epoch are provided; when needed (for inference or fine-tuning), they are automatically downloaded. All the results can be visualized in the notebooks in the [notebooks](notebooks/) folder.
   
 ## Warnings
 - make sure to update the filepaths in the csv files in [data/csv](data/csv) according to where you stored the data, and which tiles you are using.

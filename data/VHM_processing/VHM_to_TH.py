@@ -7,11 +7,11 @@ import torch
 
 threshold_height = 1
 prefix = "VHM_NFI"
-prefix_out = "TH_NFI"
+prefix_out = "TH"
 project_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 data_dir = os.path.join(os.path.dirname(os.path.dirname(project_dir)), 'Data')
 img_dir = os.path.join(data_dir, "VHM_NFI")
-img_out_dir = os.path.join(data_dir, "TH_NFI")
+img_out_dir = os.path.join(data_dir, "TH")
 mosaic_fn = os.path.join(data_dir, "VHM_NFI/mosaic.vrt")
 
 
