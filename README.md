@@ -40,7 +40,7 @@ The lists of tiles used in the training, validation and test sets are specified 
     - [SwissTLM3D vector data](https://www.swisstopo.admin.ch/en/geodata/landscape/tlm3d.html#download)
     - [VHM NFI data](https://www.envidat.ch/dataset/vegetation-height-model-nfi)
   - processed data:
-    - rasterized forest targets obtained from SwissTLM3D and TH et TCD targets obtained by processing the VHM. For download, see [here](#download-dataset)
+    - rasterized forest targets obtained from SwissTLM3D and TH et TCD targets obtained by processing the VHM. For download, see [here](data/get_dataset.sh)
 
 Geo-located plot data from Swiss National Forest Inventory (NFI) that we used for comparison is not currently openly available. More info [here](https://lfi.ch/lfi/lfi-en.php).
 
