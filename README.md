@@ -46,20 +46,13 @@ Geo-located plot data from Swiss National Forest Inventory (NFI) that we used fo
 
 ## Getting started
 
-
-### Python Dependencies
-
-Anaconda environment
-```
-Coming soon
-```
-### Download dataset (in construction)
+### Download dataset
 
 Run the following command to download the full dataset (aerial imagery, DEM, rasterized and processed targets). Replace `../Data` with the folder where you want the dataset to be stored. Make sure you have 90 GB (!) of free space.
 ```bash
 . data/get_dataset.sh ../Data
 ```
-### Training and inference (in construction)
+### Training and inference
 
 The python scripts to train a model or perform inference are [train.py](train.py) and [infer.py](infer.py) respectively. Bash scripts corresponding to each experiment in the paper are available [here](launch_scripts/), with naming convention *launch\_\<task>\_<experiment\_name>.sh*. You can edit these scripts to run your own training/inference process.
 
